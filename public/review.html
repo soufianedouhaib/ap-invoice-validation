@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Review · AP Invoice Validation</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main>
+    <div class="crumb"><a href="/reviews.html">Reviews</a> / <span id="crumb">…</span></div>
+    <div class="page-head">
+      <div>
+        <h1 id="title">Loading review…</h1>
+        <p id="sub"></p>
+      </div>
+      <div id="case-link"></div>
+    </div>
+
+    <div class="alert bad" id="error" hidden></div>
+
+    <div class="layout-main-side review-layout" id="layout" hidden>
+      <div class="stack">
+        <div class="card" id="exc-card">
+          <div class="card-head">
+            <div><h2>Exceptions</h2><p id="exc-hint">Approve to pay as invoiced. Dispute to hold the line and send the vendor a query.</p></div>
+            <div class="toolbar" id="bulk">
+              <button type="button" class="btn small" id="all-approve">Approve all</button>
+              <button type="button" class="btn small" id="all-dispute">Dispute all</button>
+            </div>
+          </div>
+          <div class="exc-list" id="exc-list"></div>
+        </div>
+
+        <div class="card" id="presentation-card">
+          <div class="card-head"><div><h2>Analyst presentation</h2><p>Prepared by the workflow from the 3-way match.</p></div></div>
+          <div class="md" id="presentation"></div>
+        </div>
+
+        <div class="card" id="brief-card">
+          <div class="card-head"><div><h2>Exception brief</h2><p>The structured data behind the exceptions.</p></div></div>
+          <div id="brief"></div>
+          <div id="other-inputs"></div>
+        </div>
+      </div>
+
+      <aside class="stack sticky-side">
+        <div class="card" id="decision-card">
+          <div class="card-head"><div><h2>Your decision</h2><p id="countdown" class="countdown"></p></div></div>
+          <div class="alert warn blocked-note" id="blocked" hidden></div>
+          <form id="decision-form" class="stack" novalidate>
+            <label class="field"><span>Sent to the workflow</span>
+              <textarea id="response" rows="5" placeholder="e.g. approve 1, dispute 2 and 3"></textarea>
+            </label>
+            <div class="hint" id="manual-hint" hidden>Edited by hand. <a href="#" id="regen">Rebuild from the selections</a></div>
+            <label class="field"><span>Note for the record (optional)</span>
+              <textarea id="note" rows="2" maxlength="500" style="min-height:64px" placeholder="Why, or what the vendor query should mention"></textarea>
+            </label>
+            <div class="alert warn small" id="undecided" hidden></div>
+            <div class="alert bad" id="submit-error" role="alert" hidden></div>
+            <button type="submit" class="btn primary block" id="submit-btn">Submit decision</button>
+            <div class="hint">Any exception you do not mention is treated as a dispute: the vendor must justify it.</div>
+          </form>
+          <div id="done" hidden></div>
+        </div>
+        <div class="card" id="guide-card">
+          <h2 style="margin-bottom:12px">How to write a decision</h2>
+          <div class="small" id="guide"></div>
+        </div>
+      </aside>
+    </div>
+
+    <div class="modal-back" id="confirm" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+        <h2 id="confirm-title">Submit this decision?</h2>
+        <p class="muted small" style="margin:0 0 8px">It goes straight to the workflow and cannot be changed afterwards.</p>
+        <pre class="mono" id="confirm-text" style="white-space:pre-wrap;background:var(--surface-2);padding:12px;border-radius:8px;margin:0"></pre>
+        <div class="actions">
+          <button type="button" class="btn" id="confirm-cancel">Back</button>
+          <button type="button" class="btn primary" id="confirm-ok">Submit</button>
+        </div>
+      </div>
+    </div>
+  </main>
+  <script src="/common.js"></script>
+  <script src="/review.js"></script>
+</body>
+</html>

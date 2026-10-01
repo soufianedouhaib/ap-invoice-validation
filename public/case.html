@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Case · AP Invoice Validation</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main>
+    <div class="crumb"><a href="/">Cases</a> / <span id="crumb-id">…</span></div>
+    <div class="page-head">
+      <div>
+        <h1 id="case-title">Loading case…</h1>
+        <p id="case-sub"></p>
+      </div>
+      <div id="case-status"></div>
+    </div>
+
+    <div class="alert bad" id="error" hidden></div>
+    <div class="alert warn" id="refresh-warning" hidden></div>
+
+    <div class="layout-main-side" id="layout" hidden>
+      <div class="stack">
+        <div id="review-banner"></div>
+
+        <div class="card" id="progress-card" hidden>
+          <div class="card-head"><div><h2>Workflow progress</h2><p id="progress-text">Starting…</p></div></div>
+          <div class="progress" id="progress-bar"><div style="width:0"></div></div>
+        </div>
+
+        <div class="card" id="failure-card" hidden>
+          <div class="card-head"><h2>The workflow did not finish</h2></div>
+          <div id="failure-body"></div>
+        </div>
+
+        <div id="results" hidden class="stack">
+          <div class="card">
+            <div class="card-head"><h2>Outcome</h2></div>
+            <div class="tiles" id="tiles"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><div><h2>Justification summary</h2><p>Written by the workflow for the payment record.</p></div></div>
+            <div class="md" id="justification"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2>Payment object</h2></div>
+            <div id="payment"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2>Audit trail</h2></div>
+            <div id="audit"></div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="stack sticky-side">
+        <div class="card">
+          <h2 style="margin-bottom:12px">Stages</h2>
+          <ul class="steps" id="steps"></ul>
+        </div>
+        <div class="card">
+          <h2 style="margin-bottom:12px">Case details</h2>
+          <dl class="kv" id="details"></dl>
+        </div>
+      </aside>
+    </div>
+  </main>
+  <script src="/common.js"></script>
+  <script src="/case.js"></script>
+</body>
+</html>

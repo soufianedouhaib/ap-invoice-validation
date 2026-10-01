@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cases · AP Invoice Validation</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main>
+    <div class="page-head">
+      <div>
+        <h1>Cases</h1>
+        <p id="scope-text">Every invoice pack run through this console, most recent first.</p>
+      </div>
+      <a class="btn primary" href="/submit.html" id="new-btn" hidden>New submission</a>
+    </div>
+
+    <div class="stats" id="stats"></div>
+
+    <div class="card flush">
+      <div class="toolbar" style="padding:14px 16px;border-bottom:1px solid var(--border)">
+        <input type="search" id="search" placeholder="Search cases" aria-label="Search cases">
+        <span class="muted small" id="count-text"></span>
+      </div>
+      <div class="table-wrap" id="table-wrap"><div class="empty">Loading cases…</div></div>
+    </div>
+    <div class="alert bad" id="error" hidden style="margin-top:16px"></div>
+  </main>
+  <script src="/common.js"></script>
+  <script src="/cases.js"></script>
+</body>
+</html>

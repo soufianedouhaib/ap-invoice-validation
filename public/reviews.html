@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reviews · AP Invoice Validation</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main>
+    <div class="page-head">
+      <div>
+        <h1>Reviews</h1>
+        <p>Invoices whose 3-way match found exceptions. The workflow is paused on each one until an approver decides.</p>
+      </div>
+    </div>
+
+    <div class="alert bad" id="error" hidden></div>
+
+    <div class="stack">
+      <div class="card flush">
+        <div class="card-head" style="padding:16px 18px 0"><div><h2>Waiting for a decision</h2><p id="pending-hint">Oldest first. Opus gives up on a review after its time limit, so answer these quickly.</p></div></div>
+        <div class="table-wrap" id="pending-wrap" style="margin-top:12px"><div class="empty">Loading…</div></div>
+      </div>
+
+      <div class="card flush">
+        <div class="card-head" style="padding:16px 18px 0"><div><h2>Review log</h2><p>The 50 most recent decisions.</p></div></div>
+        <div class="table-wrap" id="done-wrap" style="margin-top:12px"><div class="empty">Loading…</div></div>
+      </div>
+    </div>
+  </main>
+  <script src="/common.js"></script>
+  <script src="/reviews.js"></script>
+</body>
+</html>

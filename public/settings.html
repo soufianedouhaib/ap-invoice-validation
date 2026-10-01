@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Settings · AP Invoice Validation</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main>
+    <div class="page-head"><div><h1>Settings</h1><p>Your account, and the connection to the Opus workflow.</p></div></div>
+
+    <div class="stack">
+      <div class="card">
+        <div class="card-head"><div><h2>My account</h2><p id="account-line"></p></div></div>
+        <form id="pw-form" class="grid-3" novalidate style="align-items:end">
+          <label class="field"><span>Current password</span><input type="password" id="pw-current" autocomplete="current-password"></label>
+          <label class="field"><span>New password</span><input type="password" id="pw-next" autocomplete="new-password" placeholder="At least 10 characters"></label>
+          <div><button type="submit" class="btn primary" id="pw-btn">Change password</button></div>
+        </form>
+        <div class="alert" id="pw-msg" hidden style="margin-top:12px"></div>
+      </div>
+
+      <div class="card" id="conn-card" hidden>
+        <div class="card-head"><div><h2>Workflow connection</h2><p>Read-only. Change these in Vercel → Settings → Environment Variables, then redeploy: changes never reach an existing build.</p></div></div>
+        <div id="conn"></div>
+      </div>
+    </div>
+  </main>
+  <script src="/common.js"></script>
+  <script src="/settings.js"></script>
+</body>
+</html>

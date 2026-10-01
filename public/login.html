@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · AP Invoice Validation</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="card login-card">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">AP</span><span>Invoice Validation</span></div>
+      <h1>Sign in</h1>
+      <p class="muted" style="margin:6px 0 20px">Use the account your administrator created for you.</p>
+      <form id="login-form" class="stack" novalidate>
+        <label class="field"><span>Email</span><input type="email" id="email" autocomplete="username" required></label>
+        <label class="field"><span>Password</span><input type="password" id="password" autocomplete="current-password" required></label>
+        <div class="alert bad" id="login-error" role="alert" hidden></div>
+        <button class="btn primary block" type="submit" id="login-btn">Sign in</button>
+      </form>
+    </div>
+  </div>
+  <script src="/common.js"></script>
+  <script src="/login.js"></script>
+</body>
+</html>

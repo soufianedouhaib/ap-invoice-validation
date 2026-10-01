@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>New submission · AP Invoice Validation</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main>
+    <div class="page-head">
+      <div>
+        <h1>New submission</h1>
+        <p>Upload the three documents for one invoice. The workflow extracts them, runs the 3-way match and either auto-approves or sends exceptions to an approver.</p>
+      </div>
+    </div>
+
+    <div class="card" id="samples-card" style="margin-bottom:16px">
+      <div class="card-head"><div><h2>Try a sample</h2><p>Loads three ready-made PDFs into the slots below, so you can run the workflow end to end. Nothing is submitted until you press Run validation.</p></div></div>
+      <div class="samples">
+        <button type="button" class="sample" data-sample="a">
+          <span class="sample-title">Sample A · Clean match</span>
+          <span class="sample-desc">Dubai Facilities Mgmt LLC (V00388) · PO-SMP-10021 · AED 16,485.00. Invoice, PO and goods receipt agree on every line.</span>
+          <span class="pill ok plain">Expected: auto-approved, no review</span>
+        </button>
+        <button type="button" class="sample" data-sample="b">
+          <span class="sample-title">Sample B · Exceptions</span>
+          <span class="sample-desc">Mall Tech Solutions FZE (V00641) · PO-SMP-20488 · AED 64,995.00. Laptops billed above the PO price, 10 monitors billed but only 8 received, total over the PO.</span>
+          <span class="pill warn plain">Expected: 4 exceptions, sent to an approver</span>
+        </button>
+      </div>
+      <div class="hint">Test data only. To see exactly what the workflow reads, open the PDFs: <span id="sample-links"></span></div>
+    </div>
+
+    <form id="submit-form" class="stack" novalidate>
+      <div class="dropzones" id="dropzones"></div>
+
+      <div class="card">
+        <div class="grid-2">
+          <label class="field"><span>Your reference (optional)</span>
+            <input type="text" id="reference" maxlength="80" placeholder="e.g. INV-2026-0142 or vendor name">
+            <div class="hint">Shown in the case list. Using the invoice number also helps link the review to this case.</div>
+          </label>
+          <label class="field"><span>Note for the approver (optional)</span>
+            <input type="text" id="note" maxlength="500" placeholder="Anything the approver should know">
+          </label>
+        </div>
+      </div>
+
+      <div class="alert bad" id="error" role="alert" hidden></div>
+      <div class="toolbar">
+        <button class="btn primary" type="submit" id="submit-btn" disabled>Run validation</button>
+        <span class="muted small" id="submit-hint">Add all three PDFs to continue.</span>
+      </div>
+    </form>
+  </main>
+  <script src="/common.js"></script>
+  <script src="/submit.js"></script>
+</body>
+</html>

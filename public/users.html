@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Users · AP Invoice Validation</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main>
+    <div class="page-head">
+      <div>
+        <h1>Users</h1>
+        <p>AP Clerks submit invoice packs and see their own cases. AP Approvers see every case and decide on exceptions. Admins can do both and manage users.</p>
+      </div>
+      <button class="btn primary" type="button" id="add-btn">Add user</button>
+    </div>
+    <div class="alert bad" id="error" hidden></div>
+    <div class="card flush"><div class="table-wrap" id="wrap"><div class="empty">Loading…</div></div></div>
+
+    <div class="modal-back" id="modal" hidden>
+      <form class="modal" id="user-form" role="dialog" aria-modal="true" aria-labelledby="modal-title" novalidate>
+        <h2 id="modal-title">Add user</h2>
+        <div class="stack">
+          <label class="field"><span>Full name</span><input type="text" id="f-name" required></label>
+          <label class="field" id="email-field"><span>Email</span><input type="email" id="f-email" required></label>
+          <label class="field"><span>Role</span>
+            <select id="f-role">
+              <option value="clerk">AP Clerk — submits invoices</option>
+              <option value="approver">AP Approver — reviews exceptions</option>
+              <option value="admin">Admin — everything, plus users</option>
+            </select>
+          </label>
+          <label class="field" id="active-field"><span>Status</span>
+            <select id="f-active"><option value="true">Active</option><option value="false">Disabled</option></select>
+          </label>
+          <label class="field"><span id="pw-label">Temporary password</span><input type="text" id="f-password" autocomplete="new-password" placeholder="At least 10 characters">
+            <div class="hint" id="pw-hint">Share it with the person directly. They can change it under Settings.</div>
+          </label>
+          <div class="alert bad" id="form-error" hidden></div>
+        </div>
+        <div class="actions">
+          <button type="button" class="btn" id="cancel-btn">Cancel</button>
+          <button type="submit" class="btn primary" id="save-btn">Save</button>
+        </div>
+      </form>
+    </div>
+  </main>
+  <script src="/common.js"></script>
+  <script src="/users.js"></script>
+</body>
+</html>

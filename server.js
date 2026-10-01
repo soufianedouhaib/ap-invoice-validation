@@ -55,6 +55,9 @@ const REVIEW_OUTPUT_FALLBACK = process.env.OPUS_REVIEW_OUTPUT_RESPONSE || 'workf
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || '';
 const ALLOW_SELF_REVIEW = String(process.env.ALLOW_SELF_REVIEW || '').toLowerCase() === 'true';
 const REVIEW_TIMEOUT_MINUTES = Number(process.env.REVIEW_TIMEOUT_MINUTES) || 10;
+// Demo mode (on unless DEMO_MODE=false): the login page offers one-click
+// Demo Clerk / Demo Approver / Demo Admin accounts. Turn it off for real use.
+const DEMO_MODE = String(process.env.DEMO_MODE || 'true').toLowerCase() !== 'false';
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const TERMINAL = ['COMPLETED', 'FAILED', 'CANCELLED', 'TIMED_OUT'];
@@ -64,7 +67,7 @@ function missingEnv() {
   const missing = [];
   if (!opus.OPUS_SERVICE_KEY) missing.push('OPUS_SERVICE_KEY');
   if (!opus.OPUS_WORKSPACE_ID) missing.push('OPUS_WORKSPACE_ID');
-  if (!auth.sessionSecretConfigured()) missing.push('SESSION_SECRET (32+ characters)');
+  if (!auth.sessionSecretConfigured()) missing.push('SESSION_SECRET (32+ characters, or set OPUS_SERVICE_KEY)');
   if (!store.durable) missing.push('Redis / KV store (KV_REST_API_URL + KV_REST_API_TOKEN, or REDIS_URL)');
   return missing;
 }
@@ -113,6 +116,8 @@ app.get('/api/config', auth.requireRole('admin'), (req, res) => {
     webhookUrl: `${base}/api/opus-webhook/human-review${WEBHOOK_SECRET ? '/<WEBHOOK_SECRET>' : ''}`,
     webhookSecretConfigured: Boolean(WEBHOOK_SECRET),
     allowSelfReview: ALLOW_SELF_REVIEW,
+    demoMode: DEMO_MODE,
+    sessionSecretDerived: auth.sessionSecretIsDerived(),
     reviewTimeoutMinutes: REVIEW_TIMEOUT_MINUTES,
     inputs: INPUT_VARS,
     outputs: OUTPUT_VARS,
@@ -153,6 +158,20 @@ app.post('/api/login', wrap(async (req, res) => {
     return res.status(401).json({ error: 'Incorrect email or password.' });
   }
   await store.del(key);
+  auth.setSessionCookie(req, res, user);
+  res.json({ user: auth.publicUser(user) });
+}));
+
+app.get('/api/demo', (req, res) => {
+  res.json({ enabled: DEMO_MODE, accounts: DEMO_MODE ? auth.DEMO_ACCOUNTS.map((a) => ({ role: a.role, name: a.name })) : [] });
+});
+
+app.post('/api/demo-login', wrap(async (req, res) => {
+  if (!DEMO_MODE) return res.status(404).json({ error: 'Demo accounts are switched off.' });
+  if (!auth.sessionSecretConfigured()) {
+    return res.status(503).json({ error: 'Sign-in is not configured yet: set OPUS_SERVICE_KEY (or SESSION_SECRET) and redeploy.' });
+  }
+  const user = await auth.ensureDemoUser((req.body || {}).role);
   auth.setSessionCookie(req, res, user);
   res.json({ user: auth.publicUser(user) });
 }));

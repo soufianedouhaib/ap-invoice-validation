@@ -24,6 +24,15 @@ The browser only talks to this app's server. The server holds the Opus service k
 | `.env.example` | Every environment variable, documented |
 | `.gitignore` | Keeps `node_modules` and `.env` out of git |
 
+## Demo mode (on by default)
+
+For a demo you only need **`OPUS_SERVICE_KEY`**, **`OPUS_WORKSPACE_ID`** and a connected **Upstash Redis** store. The sign-in page then offers one-click **Demo Clerk**, **Demo Approver** and **Demo Admin** accounts.
+
+Every other variable is optional. Before real use:
+- set `DEMO_MODE=false`;
+- set `SESSION_SECRET`, `BOOTSTRAP_ADMIN_*` and `WEBHOOK_SECRET`;
+- redeploy.
+
 ## Setup, in order
 
 1. **GitHub.** Create a new repo and upload every file, keeping the folder structure. `.env.example` and `.gitignore` start with a dot; make sure they are included.

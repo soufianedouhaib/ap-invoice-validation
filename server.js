@@ -66,7 +66,7 @@ const FAILURE = ['FAILED', 'CANCELLED', 'TIMED_OUT'];
 function missingEnv() {
   const missing = [];
   if (!opus.OPUS_SERVICE_KEY) missing.push('OPUS_SERVICE_KEY');
-  if (!opus.OPUS_WORKSPACE_ID) missing.push('OPUS_WORKSPACE_ID');
+  // OPUS_WORKSPACE_ID is optional now: the workspace is read from the workflow.
   if (!auth.sessionSecretConfigured()) missing.push('SESSION_SECRET (32+ characters, or set OPUS_SERVICE_KEY)');
   if (!store.durable) missing.push('Redis / KV store (KV_REST_API_URL + KV_REST_API_TOKEN, or REDIS_URL)');
   return missing;
@@ -104,12 +104,16 @@ app.get('/api/health', (req, res) => {
   res.json({ ok: missing.length === 0, missing, storage: store.kind });
 });
 
-app.get('/api/config', auth.requireRole('admin'), (req, res) => {
+app.get('/api/config', auth.requireRole('admin'), wrap(async (req, res) => {
+  const ws = opus.OPUS_SERVICE_KEY ? await opus.resolveWorkspace().catch(() => null) : null;
   const base = `${req.protocol}://${req.get('host')}`;
   res.json({
     opusHost: opus.OPUS_BASE_URL,
     workflowId: opus.OPUS_WORKFLOW_ID,
-    workspaceConfigured: Boolean(opus.OPUS_WORKSPACE_ID),
+    workspaceConfigured: Boolean(ws && ws.id),
+    workspaceId: ws ? ws.id : null,
+    workspaceSource: ws ? ws.source : 'none',
+    workspaceEnvMismatch: Boolean(ws && ws.envMismatch),
     serviceKeyConfigured: Boolean(opus.OPUS_SERVICE_KEY),
     storage: store.kind,
     storageDurable: store.durable,
@@ -126,7 +130,7 @@ app.get('/api/config', auth.requireRole('admin'), (req, res) => {
     reviewOutputFallback: REVIEW_OUTPUT_FALLBACK,
     missing: missingEnv(),
   });
-});
+}));
 
 // ---------------------------------------------------------------------------
 // Auth

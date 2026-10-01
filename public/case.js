@@ -125,7 +125,10 @@
         (expired ? 'The review was not answered before the workflow’s time limit. ' : '') +
         (nodes.length ? 'Failed at: ' + esc(nodes.join(', ')) + '. ' : '') +
         'Submit the invoice pack again to retry.</div>' +
-        (me.role !== 'approver' ? '<p style="margin-top:12px"><a class="btn" href="/submit.html">Submit again</a></p>' : '');
+        (me.role !== 'approver' ? '<p style="margin-top:12px"><a class="btn" href="/submit.html">Submit again</a></p>' : '') +
+        (me.role === 'admin' ? (f.raw
+          ? '<details class="raw" open><summary>Technical details from Opus (admins only)</summary><pre>' + esc(JSON.stringify(f.raw, null, 2)) + '</pre></details>'
+          : '<p class="muted small" style="margin-top:12px">No technical details were recorded for this case (it failed before this version of the app). Run it again to capture them.</p>') : '');
     }
 
     // results

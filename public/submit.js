@@ -123,7 +123,7 @@
   function uploadFile(file) {
     return AP.api('/api/upload-url', { method: 'POST', body: { fileName: file.name.replace(/\.PDF$/, '.pdf'), size: file.size } })
       .then(function (d) {
-        return fetch(d.presignedUrl, { method: 'PUT', body: file }).then(function (res) {
+        return fetch(d.presignedUrl, { method: 'PUT', body: new Blob([file]) }).then(function (res) {
           if (!res.ok) throw new Error('direct upload ' + res.status);
           return d.fileUrl;
         });

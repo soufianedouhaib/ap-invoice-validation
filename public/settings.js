@@ -37,7 +37,10 @@
         ['Opus host', '<span class="mono">' + esc(c.opusHost) + '</span>'],
         ['Workflow id', '<span class="mono">' + esc(c.workflowId) + '</span>'],
         ['Service key', yesNo(c.serviceKeyConfigured)],
-        ['Workspace id', yesNo(c.workspaceConfigured)],
+        ['Workspace used for uploads', c.workspaceId
+          ? '<span class="mono">' + esc(c.workspaceId) + '</span> <span class="muted small">(' + (c.workspaceSource === 'workflow' ? 'read from the workflow' : 'from OPUS_WORKSPACE_ID') + ')</span>' +
+            (c.workspaceEnvMismatch ? '<div class="hint">OPUS_WORKSPACE_ID is set to a different workspace; it is being ignored. You can delete it.</div>' : '')
+          : '<span class="pill bad">Unknown</span>'],
         ['Storage', c.storageDurable ? '<span class="pill ok">' + esc(c.storage) + '</span>' : '<span class="pill bad">In memory only — connect a KV / Redis store</span>'],
         ['Human Task webhook', '<span class="mono" style="word-break:break-all">' + esc(c.webhookUrl) + '</span><div class="hint">Paste this into the Human Task node (off-platform) in the Opus builder.' + (c.webhookSecretConfigured ? ' Replace &lt;WEBHOOK_SECRET&gt; with the value of that variable.' : ' Set WEBHOOK_SECRET to stop anyone else posting fake reviews.') + '</div>'],
         ['Review time limit shown', esc(c.reviewTimeoutMinutes) + ' minutes <span class="muted small">(REVIEW_TIMEOUT_MINUTES — keep it equal to the Human Task timeout in Opus)</span>'],

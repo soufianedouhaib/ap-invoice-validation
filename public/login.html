@@ -11,7 +11,15 @@
     <div class="card login-card">
       <div class="brand"><span class="brand-mark" aria-hidden="true">AP</span><span>Invoice Validation</span></div>
       <h1>Sign in</h1>
-      <p class="muted" style="margin:6px 0 20px">Use the account your administrator created for you.</p>
+      <div id="demo" hidden>
+        <p class="muted" style="margin:6px 0 14px">Demo mode: pick a role to explore the console.</p>
+        <div class="stack" id="demo-buttons"></div>
+        <div class="alert bad" id="demo-error" role="alert" hidden style="margin-top:12px"></div>
+        <details style="margin-top:18px"><summary class="muted small" style="cursor:pointer">Sign in with email instead</summary><div style="height:12px"></div>
+          <div id="form-slot"></div>
+        </details>
+      </div>
+      <p class="muted" id="form-intro" style="margin:6px 0 20px">Use the account your administrator created for you.</p>
       <form id="login-form" class="stack" novalidate>
         <label class="field"><span>Email</span><input type="email" id="email" autocomplete="username" required></label>
         <label class="field"><span>Password</span><input type="password" id="password" autocomplete="current-password" required></label>

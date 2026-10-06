@@ -55,6 +55,7 @@ const REVIEW_OUTPUT_FALLBACK = process.env.OPUS_REVIEW_OUTPUT_RESPONSE || 'workf
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || '';
 const ALLOW_SELF_REVIEW = String(process.env.ALLOW_SELF_REVIEW || '').toLowerCase() === 'true';
 const REVIEW_TIMEOUT_MINUTES = Number(process.env.REVIEW_TIMEOUT_MINUTES) || 10;
+const CALLBACK_VALUE_FORMAT = String(process.env.CALLBACK_VALUE_FORMAT || 'bare').toLowerCase();
 // Demo mode (on unless DEMO_MODE=false): the login page offers one-click
 // Demo Clerk / Demo Approver / Demo Admin accounts. Turn it off for real use.
 const DEMO_MODE = String(process.env.DEMO_MODE || 'true').toLowerCase() !== 'false';
@@ -568,7 +569,7 @@ app.get('/api/cases/:id', auth.requireUser, wrap(async (req, res) => {
 //
 // Exchange 2 (us -> Opus): POST callback.url with header
 //   [callback.token_header]: callback.token
-//   body { output_data: { <output id>: { value, type: { type, type_definition } } }, status: 'success' }
+//   body { output_data: { <output id>: <bare value> }, status: 'success' }   (per developer.opus.com)
 //   The token is single-use.
 //
 // Unlike the KYC console, every dispatch is stored in Redis (not process
@@ -677,7 +678,7 @@ async function matchDispatch(record) {
     try {
       const audit = await opus.getAudit(c.jobId);
       const where = JSON.stringify([audit.running_node, audit.next_node_to_execute]);
-      if (where.includes(HUMAN_NODE_ID) || /human task/i.test(where)) atHuman.push(c);
+      if (where.includes(HUMAN_NODE_ID) || /human|review|approv|off.?platform/i.test(where)) atHuman.push(c);
     } catch (e) {
       console.error('audit during match failed', e.message);
     }
@@ -707,11 +708,29 @@ function unwrap(v) {
   return v;
 }
 
+// Finds the brief and the presentation in a dispatch. First by the known
+// variable ids; if the review node was replaced (e.g. by an Off-Platform Task,
+// which gets new ids), by the display_name Opus sends with each input, and
+// finally by type (object = brief, text = presentation).
+function findReviewInput(inputs, knownId, namePattern, wantType) {
+  if (inputs[knownId] !== undefined) return knownId;
+  const entries = Object.entries(inputs);
+  const byName = entries.find(([k, v]) => namePattern.test(String((v && v.display_name) || k)));
+  if (byName) return byName[0];
+  const byType = entries.find(([, v]) => {
+    const val = unwrap(v);
+    return wantType === 'object' ? val && typeof val === 'object' : typeof val === 'string';
+  });
+  return byType ? byType[0] : null;
+}
+
 function reviewInputsFor(d) {
   const inputs = d.inputs || {};
-  const brief = unwrap(inputs[REVIEW_INPUT_VARS.exceptionBrief]);
-  const presentation = unwrap(inputs[REVIEW_INPUT_VARS.analystPresentation]);
-  const known = new Set(Object.values(REVIEW_INPUT_VARS));
+  const briefKey = findReviewInput(inputs, REVIEW_INPUT_VARS.exceptionBrief, /brief|manifest|exception/i, 'object');
+  const presKey = findReviewInput(inputs, REVIEW_INPUT_VARS.analystPresentation, /presentation|markdown|analyst|narrative/i, 'string');
+  const brief = briefKey ? unwrap(inputs[briefKey]) : null;
+  const presentation = presKey && presKey !== briefKey ? unwrap(inputs[presKey]) : null;
+  const known = new Set([briefKey, presKey].filter(Boolean));
   const other = {};
   for (const [k, v] of Object.entries(inputs)) if (!known.has(k)) other[k] = unwrap(v);
   return {
@@ -802,11 +821,15 @@ app.post('/api/reviews/:id', auth.requireRole(...REVIEW_ROLES), wrap(async (req,
     const declared = d.expectedOutputSchema && d.expectedOutputSchema[outputId];
     const declaredType = declared && declared.type;
     const type = declaredType && typeof declaredType === 'object' ? declaredType : { type: typeof declaredType === 'string' && declaredType ? declaredType : 'str', type_definition: null };
+    // Opus docs (Off-Platform Task / Review): send BARE values; Opus applies the
+    // declared type itself, and a {value, type} wrapper would be stored as the value.
+    // CALLBACK_VALUE_FORMAT=wrapped restores the older KYC-style shape if ever needed.
+    const value = CALLBACK_VALUE_FORMAT === 'wrapped' ? { value: response, type } : response;
 
     const cbRes = await fetch(d.callback.url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', [d.callback.tokenHeader]: d.callback.token },
-      body: JSON.stringify({ output_data: { [outputId]: { value: response, type } }, status: 'success' }),
+      body: JSON.stringify({ output_data: { [outputId]: value }, status: 'success' }),
       signal: AbortSignal.timeout(20000),
     });
 

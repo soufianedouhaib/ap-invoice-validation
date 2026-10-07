@@ -313,6 +313,19 @@ function reviewStepFromAudit(audit) {
   return null;
 }
 
+// When the paused review node started, in ms (null if unknown).
+function reviewStartedAt(audit) {
+  const nodes = (audit && audit.audit && audit.audit.nodes_execution_data) || {};
+  for (const n of Object.values(nodes)) {
+    const st = String((n && n.execution_status) || '').toUpperCase();
+    if (['SLEEPING', 'WAITING', 'WAITING_REVIEW', 'PENDING_REVIEW', 'DISPATCHED', 'PAUSED', 'RUNNING'].includes(st) && n.execution_start_time) {
+      const t = Number(n.execution_start_time);
+      return t > 1e12 ? t : t * 1000;
+    }
+  }
+  return null;
+}
+
 // The one projection from a stored case to what every screen shows.
 function toRow(c) {
   return {
@@ -711,8 +724,10 @@ async function linkDispatch(record, c) {
 // Which case does this dispatch belong to?
 //   1. an explicit job id in the dispatch, or execution_id == a case id
 //   2. the only in-flight case without a review
-//   3. in-flight cases whose Opus audit shows them sitting at the Human Task
+//   3. in-flight cases paused at the review step (found by status, so the
+//      node's name does not matter), dropping ones paused long before
 //   4. of those, the one whose reference appears in the exception brief
+//   5. else the one that paused closest to when the dispatch arrived
 async function matchDispatch(record) {
   if (record.jobId) return record.jobId;
 
@@ -730,22 +745,40 @@ async function matchDispatch(record) {
   if (candidates.length === 1) return linkDispatch(record, candidates[0]);
   if (!candidates.length) return null;
 
-  const atHuman = [];
-  for (const c of candidates.slice(0, 6)) {
+  // Which candidates are parked at the review step right now, and since when?
+  // Works whatever the review node is called ("Human Task", "AP Approver
+  // Review", ...): a paused node is found by its status, not its name.
+  const atReview = [];
+  const newestFirst = candidates.slice().sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
+  for (const c of newestFirst.slice(0, 8)) {
     try {
       const audit = await opus.getAudit(c.jobId);
+      const step = reviewStepFromAudit(audit);
       const where = JSON.stringify([audit.running_node, audit.next_node_to_execute]);
-      if (where.includes(HUMAN_NODE_ID) || /human|review|approv|off.?platform/i.test(where)) atHuman.push(c);
+      if (step || where.includes(HUMAN_NODE_ID)) atReview.push({ c, startedAt: reviewStartedAt(audit) });
     } catch (e) {
       console.error('audit during match failed', e.message);
     }
   }
-  if (atHuman.length === 1) return linkDispatch(record, atHuman[0]);
+  // A case that reached its review step long before this dispatch arrived is
+  // waiting on a different review (e.g. an old run on an older version).
+  const fresh = atReview.filter((x) => !x.startedAt || Math.abs(receivedAt - x.startedAt) <= 15 * 60000);
+  if (fresh.length === 1) return linkDispatch(record, fresh[0].c);
 
-  const pool = atHuman.length ? atHuman : candidates;
+  const pool = (fresh.length ? fresh : atReview.length ? atReview : candidates.map((c) => ({ c })));
+  // The exception brief names the invoice, PO and GR; the clerk's reference
+  // is usually the invoice number.
   const haystack = JSON.stringify(record.inputs || {}).toLowerCase();
-  const byRef = pool.filter((c) => c.reference && haystack.includes(c.reference.toLowerCase()));
-  if (byRef.length === 1) return linkDispatch(record, byRef[0]);
+  const byRef = pool.filter((x) => x.c.reference && haystack.includes(x.c.reference.toLowerCase()));
+  if (byRef.length === 1) return linkDispatch(record, byRef[0].c);
+
+  // Last resort: the case whose review step started closest to when the
+  // dispatch arrived, if it is clearly the closest (within 3 minutes).
+  const timed = pool.filter((x) => x.startedAt).sort((a, b) => Math.abs(receivedAt - a.startedAt) - Math.abs(receivedAt - b.startedAt));
+  if (timed.length && Math.abs(receivedAt - timed[0].startedAt) <= 3 * 60000 &&
+      (timed.length === 1 || Math.abs(receivedAt - timed[1].startedAt) > 5 * 60000)) {
+    return linkDispatch(record, timed[0].c);
+  }
 
   return null;
 }
@@ -852,6 +885,12 @@ app.get('/api/reviews/:id', auth.requireRole(...REVIEW_ROLES), wrap(async (req, 
     response: d.response || null,
     reviewedBy: d.reviewedBy || null,
     reviewedAt: d.reviewedAt || null,
+    // What Opus expects back (field ids/names/types only, never the token).
+    outputFields: Object.entries(d.expectedOutputSchema || {}).map(([id, def]) => ({
+      id, name: (def && def.display_name) || null,
+      type: def && (typeof def.type === 'object' ? def.type && def.type.type : def.type) || null,
+      sentAs: id === pickResponseOutputId(d.expectedOutputSchema),
+    })),
     blockedReason: selfReview && !ALLOW_SELF_REVIEW ? 'You submitted this invoice, so another approver has to review it.' : null,
   });
 }));

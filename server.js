@@ -287,8 +287,30 @@ function canSeeCase(user, c) {
 }
 
 function displayStatus(c) {
-  if (c.review && c.review.status === 'pending' && !TERMINAL.includes(c.status)) return 'WAITING_REVIEW';
+  if (TERMINAL.includes(c.status)) return c.status;
+  if (c.review && c.review.status === 'pending') return 'WAITING_REVIEW';
+  // Opus says the run is parked at the review step, even if the review has not
+  // reached this app (e.g. the node is still an in-platform Human Task).
+  if (c.atReviewStep) return 'WAITING_REVIEW';
   return c.status;
+}
+
+// Is the run currently parked at the human-review node? Read from the Opus
+// audit: the running/next node name, or a node whose execution status is
+// sleeping/waiting (an in-platform Human Task shows as SLEEPING).
+const REVIEW_NODE_PATTERN = /human|review|approv|off.?platform/i;
+function reviewStepFromAudit(audit) {
+  if (!audit || typeof audit !== 'object') return null;
+  const nodes = (audit.audit && audit.audit.nodes_execution_data) || {};
+  for (const [name, n] of Object.entries(nodes)) {
+    const st = String((n && n.execution_status) || '').toUpperCase();
+    if (['SLEEPING', 'WAITING', 'WAITING_REVIEW', 'PENDING_REVIEW', 'DISPATCHED', 'PAUSED'].includes(st)) {
+      return { node: name, opusStatus: st };
+    }
+  }
+  const running = nodeName(audit.running_node) || '';
+  if (running && REVIEW_NODE_PATTERN.test(running)) return { node: running, opusStatus: 'RUNNING' };
+  return null;
 }
 
 // The one projection from a stored case to what every screen shows.
@@ -303,7 +325,11 @@ function toRow(c) {
     status: displayStatus(c),
     files: c.files || {},
     summary: c.summary || {},
-    hadReview: Boolean(c.review),
+    hadReview: Boolean(c.review || c.atReviewStep),
+    atReviewStep: c.atReviewStep && !TERMINAL.includes(c.status)
+      ? { node: c.atReviewStep.node, opusStatus: c.atReviewStep.opusStatus, since: c.atReviewStep.since,
+          inApp: Boolean(c.review && c.review.status === 'pending') }
+      : null,
     review: c.review
       ? {
           status: c.review.status,
@@ -436,6 +462,17 @@ async function refreshCase(c) {
         runningNode: nodeName(audit.running_node),
         nextNode: nodeName(audit.next_node_to_execute),
       };
+      const step = reviewStepFromAudit(audit);
+      if (step) {
+        changes.atReviewStep = {
+          node: step.node,
+          opusStatus: step.opusStatus,
+          since: (c.atReviewStep && c.atReviewStep.since) || new Date().toISOString(),
+        };
+        progress.runningNode = progress.runningNode || step.node;
+      } else if (c.atReviewStep) {
+        changes.atReviewStep = null;
+      }
     } catch (e) {
       console.error('progress audit error', e.message);
     }
@@ -775,7 +812,12 @@ app.get('/api/reviews', auth.requireRole(...REVIEW_ROLES), wrap(async (req, res)
     .slice(0, 50)
     .map(toRow);
 
-  res.json({ pending, completed });
+  const pendingJobIds = new Set(pending.map((p) => p.case && p.case.jobId).filter(Boolean));
+  const notDelivered = (await allCases())
+    .filter((c) => !TERMINAL.includes(c.status) && c.atReviewStep && !pendingJobIds.has(c.jobId) && !(c.review && c.review.status === 'pending'))
+    .map(toRow);
+
+  res.json({ pending, completed, notDelivered });
 }));
 
 app.get('/api/reviews/:id', auth.requireRole(...REVIEW_ROLES), wrap(async (req, res) => {

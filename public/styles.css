@@ -526,7 +526,8 @@ pre.presentation { white-space: pre-wrap; margin: 0; font-size: 13px; line-heigh
 /* -------------------------------- sign in ------------------------------- */
 
 .signin-page { padding-left: 0; }
-.signin { display: flex; justify-content: center; align-items: flex-start; padding-top: 56px; }
+.signin { display: flex; justify-content: center; align-items: center; padding-top: 32px; padding-bottom: 32px; }
+.signin-page main.signin { max-width: none; }
 .signin-card { width: 100%; max-width: 440px; }
 .signin-logo { height: 24px; width: auto; display: block; margin-bottom: 20px; filter: var(--logo-filter); }
 .signin-card h1 { font-size: 23px; margin: 10px 0 6px; }
@@ -699,7 +700,7 @@ pre.presentation { white-space: pre-wrap; margin: 0; font-size: 13px; line-heigh
   .exc { grid-template-columns: 30px minmax(0, 1fr); }
   .exc .seg { grid-column: 1 / -1; justify-self: start; }
   .toolbar input[type='search'] { min-width: 0; width: 100%; max-width: none; }
-  .signin { padding-top: 24px; }
+  .signin { padding-top: 24px; padding-bottom: 24px; }
   .logo-row .divider, .logo-row .product { display: none; }
   .page-head .rb-controls { width: 100%; flex-wrap: wrap; }
   .footer, footer.site { padding: 0 16px 24px; }

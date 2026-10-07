@@ -335,6 +335,137 @@ function reviewStartedAt(audit) {
   return null;
 }
 
+
+// ---------------------------------------------------------------------------
+// Early case details. The payment object only exists at the end, but the
+// vendor, invoice number and invoice total are known as soon as the 3-way
+// match has run (from the job audit) or the review arrives (from the brief).
+// ---------------------------------------------------------------------------
+
+const HELD_RE = /held|hold|query|reject|disput|block/;
+
+function prelimFrom(obj) {
+  const o = parseMaybeJson(obj);
+  if (!o || typeof o !== 'object') return null;
+  const vendor = findKey(o, ['vendor_name', 'supplier_name']);
+  const invoiceNumber = findKey(o, ['invoice_number', 'invoice_no']);
+  if (!vendor && !invoiceNumber) return null;
+  const total = toNumber(findKey(o, ['invoice_total', 'total_amount', 'grand_total', 'invoice_amount']));
+  const ccy = findKey(o, ['currency', 'currency_code']);
+  const vendorId = findKey(o, ['vendor_id']);
+  const licence = findKey(o, ['trade_license', 'trade_licence', 'license_number']);
+  const vs = findKey(o, ['vendor_status']);
+  const rec = o.vendor && typeof o.vendor === 'object' ? o.vendor : null;
+  const status = vs && typeof vs === 'object' ? vs.actual || vs.value || null : typeof vs === 'string' ? vs : rec && typeof rec.status === 'string' ? rec.status : null;
+  return {
+    vendorId: typeof vendorId === 'string' ? vendorId : null,
+    tradeLicense: typeof licence === 'string' ? licence : null,
+    vendorStatus: typeof status === 'string' && /^[A-Z_]+$/i.test(status) && !/^(pass|fail)$/i.test(status) ? status.toUpperCase() : null,
+    vendor: typeof vendor === 'string' ? vendor : null,
+    invoiceNumber: invoiceNumber !== undefined && typeof invoiceNumber !== 'object' ? String(invoiceNumber) : null,
+    invoiceTotal: typeof total === 'number' && total > 0 ? total : null,
+    currency: typeof ccy === 'string' ? ccy.toUpperCase() : null,
+  };
+}
+
+function mergePrelim(a, b) {
+  if (!b) return a || null;
+  const out = { ...(a || {}) };
+  for (const [k, v] of Object.entries(b)) if (v !== null && v !== undefined && (out[k] === null || out[k] === undefined)) out[k] = v;
+  return out;
+}
+
+// From the audit: the Vendor Lookup's normalized data, or any extractor
+// output that names the vendor and invoice.
+function prelimFromAudit(audit) {
+  const nodes = audit && audit.audit && audit.audit.nodes_execution_data;
+  let best = null;
+  for (const [name, n] of Object.entries(nodes || {})) {
+    if (String((n && n.execution_status) || '').toUpperCase() !== 'COMPLETED') continue;
+    for (const o of (n && n.execution_output) || []) {
+      const p = prelimFrom(o && o.value);
+      if (p) best = /vendor|match/i.test(name) ? mergePrelim(p, best) : mergePrelim(best, p);
+    }
+  }
+  return best;
+}
+
+const fmtMoney = (n, ccy) => `${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${ccy ? ' ' + ccy : ''}`;
+
+function rowSummary(c) {
+  const s = { ...(c.summary || {}) };
+  const p = c.prelim || {};
+  for (const k of ['vendor', 'invoiceNumber', 'currency', 'invoiceTotal', 'vendorId']) if (s[k] === null || s[k] === undefined) s[k] = p[k] ?? null;
+  const decision = String(s.outcome || '').toLowerCase();
+  if (c.status === 'COMPLETED' && (s.amount === null || s.amount === undefined) && HELD_RE.test(decision) && s.invoiceTotal) {
+    s.displayAmount = fmtMoney(s.invoiceTotal, s.currency);
+    s.displayNote = 'held';
+  } else if (s.submittedTotal) {
+    s.displayAmount = s.submittedTotal;
+  } else if (s.invoiceTotal) {
+    s.displayAmount = fmtMoney(s.invoiceTotal, s.currency);
+    s.displayNote = 'invoice total';
+  }
+  return s;
+}
+
+// Older cases never stored early details. The review brief still has them,
+// and for a finished case the Opus audit does (read once, then kept).
+async function ensurePrelim(c) {
+  let prelim = c.prelim || null;
+  const complete = (x) => x && x.invoiceTotal && x.vendorId && x.vendorStatus;
+  if (complete(prelim)) return c;
+  if (c.review && c.review.dispatchId && !(prelim && prelim.briefChecked)) {
+    const d = await store.get(DISPATCH_KEY(c.review.dispatchId)).catch(() => null);
+    prelim = { ...mergePrelim(prelim, d ? prelimFrom(reviewInputsFor(d).exceptionBrief) : null), briefChecked: true };
+  }
+  if (!complete(prelim) && TERMINAL.includes(c.status) && !(prelim && prelim.auditChecked) && opus.OPUS_SERVICE_KEY) {
+    const audit = await opus.getAudit(c.jobId).catch(() => null);
+    prelim = { ...mergePrelim(prelim, prelimFromAudit(audit)), auditChecked: true };
+  }
+  if (!prelim || JSON.stringify(prelim) === JSON.stringify(c.prelim || null)) return c;
+  await patchCase(c.jobId, { prelim });
+  return { ...c, prelim };
+}
+
+// The workflow's outputs, completed for display with what the console knows
+// from earlier in the run: the vendor id, licence and status the vendor
+// lookup found but the payment record left blank. Only blanks are filled;
+// nothing the workflow wrote is changed.
+function enrichOutputs(outputs, c) {
+  if (!outputs) return outputs;
+  const p = c.prelim || {};
+  const out = { ...outputs };
+  const fill = (obj, key, value) => {
+    if (obj && typeof obj === 'object' && value && (obj[key] === null || obj[key] === undefined || obj[key] === '')) obj[key] = value;
+  };
+  const pay = parseMaybeJson(out.paymentObject);
+  if (pay && typeof pay === 'object' && !Array.isArray(pay)) {
+    const copy = { ...pay };
+    fill(copy, 'vendor_id', p.vendorId);
+    out.paymentObject = copy;
+  }
+  const aud = parseMaybeJson(out.auditTrail);
+  if (aud && typeof aud === 'object' && !Array.isArray(aud)) {
+    const copy = { ...aud };
+    if (copy.vendor && typeof copy.vendor === 'object') {
+      copy.vendor = { ...copy.vendor };
+      fill(copy.vendor, 'vendor_id', p.vendorId);
+      fill(copy.vendor, 'trade_license', p.tradeLicense);
+      fill(copy.vendor, 'status', p.vendorStatus);
+    }
+    out.auditTrail = copy;
+  }
+  if (typeof out.justificationSummary === 'string') {
+    let t = out.justificationSummary;
+    const ref = p.tradeLicense || p.vendorId;
+    if (ref) t = t.replace(/\((?:—|–|-)\)/g, '(' + ref + ')');
+    if (p.vendorStatus) t = t.replace(/(\*\*Status:\*\*\s*|Status:\s*)(?:—|–)/g, '$1' + p.vendorStatus);
+    out.justificationSummary = t;
+  }
+  return out;
+}
+
 // The one projection from a stored case to what every screen shows.
 function toRow(c) {
   return {
@@ -346,7 +477,7 @@ function toRow(c) {
     completedAt: c.completedAt || null,
     status: displayStatus(c),
     files: c.files || {},
-    summary: c.summary || {},
+    summary: rowSummary(c),
     hadReview: Boolean(c.review || c.atReviewStep),
     atReviewStep: c.atReviewStep && !TERMINAL.includes(c.status)
       ? { node: c.atReviewStep.node, opusStatus: c.atReviewStep.opusStatus, since: c.atReviewStep.since,
@@ -492,6 +623,8 @@ async function refreshCase(c) {
         runningNode: nodeName(audit.running_node),
         nextNode: nodeName(audit.next_node_to_execute),
       };
+      const early = prelimFromAudit(audit);
+      if (early) changes.prelim = mergePrelim(early, c.prelim);
       const step = reviewStepFromAudit(audit);
       if (step) {
         changes.atReviewStep = {
@@ -626,7 +759,7 @@ app.get('/api/cases/:id', auth.requireUser, wrap(async (req, res) => {
   let refreshError = null;
   try {
     const r = await refreshCase(c);
-    current = r.c;
+    current = await ensurePrelim(r.c).catch(() => r.c);
     progress = r.progress;
   } catch (err) {
     console.error('refresh error', err.message);
@@ -635,7 +768,7 @@ app.get('/api/cases/:id', auth.requireUser, wrap(async (req, res) => {
 
   res.json({
     case: toRow(current),
-    outputs: current.outputs || null,
+    outputs: enrichOutputs(current.outputs || null, current),
     failure: current.failure
       ? { failedNodes: current.failure.failedNodes, nextNodeToExecute: current.failure.nextNodeToExecute,
           cause: failureCause(current.failure.raw),
@@ -729,6 +862,7 @@ async function linkDispatch(record, c) {
   record.jobId = c.jobId;
   await store.set(DISPATCH_KEY(record.id), record);
   await patchCase(c.jobId, {
+    prelim: mergePrelim(c.prelim, prelimFrom(reviewInputsFor(record).exceptionBrief)),
     review: {
       status: 'pending',
       dispatchId: record.id,
@@ -1143,12 +1277,17 @@ function caseFigures(c) {
   const unfinished = FAILURE.includes(status);
   const reviewed = Boolean(c.review && c.review.status === 'submitted') || /override|review|partial|disput|held|hold/.test(decision);
   const auto = completed && !reviewed && !c.atReviewStep && (/auto/.test(decision) || !c.hadReview);
-  let approved = completed && typeof s.amount === 'number' ? s.amount : 0;
+  const p = c.prelim || {};
+  const invoiceTotal = typeof s.invoiceTotal === 'number' ? s.invoiceTotal : typeof p.invoiceTotal === 'number' ? p.invoiceTotal : null;
+  if (!s.vendor && p.vendor) s.vendor = p.vendor;
+  if (!s.currency && p.currency) s.currency = p.currency;
+  const isHeld = HELD_RE.test(decision) && !/partial|approved/.test(decision);
+  let approved = completed && typeof s.amount === 'number' && !isHeld ? s.amount : 0;
   let held = 0;
   if (completed) {
-    if (typeof s.heldAmount === 'number') held = s.heldAmount;
-    else if (typeof s.invoiceTotal === 'number' && typeof s.amount === 'number' && s.invoiceTotal > s.amount) held = s.invoiceTotal - s.amount;
-    if (/reject|hold|block/.test(decision) && !/partial/.test(decision) && approved && !held) { held = approved; approved = 0; }
+    if (typeof s.heldAmount === 'number' && s.heldAmount > 0) held = s.heldAmount;
+    else if (isHeld) held = invoiceTotal || (typeof s.amount === 'number' ? s.amount : 0);
+    else if (invoiceTotal && typeof s.amount === 'number' && invoiceTotal > s.amount) held = invoiceTotal - s.amount;
   }
   const runtimeMs = completed && c.completedAt ? new Date(c.completedAt) - new Date(c.submittedAt) : null;
   return { status, s, completed, unfinished, reviewed, auto, approved, held, runtimeMs, currency: s.currency || null };
@@ -1213,6 +1352,7 @@ app.get('/api/report', auth.requireUser, wrap(async (req, res) => {
     const byId = new Map(fresh.map((c) => [c.jobId, c]));
     cases = cases.map((c) => byId.get(c.jobId) || c);
   }
+  cases = await Promise.all(cases.map((c) => (c.status === 'COMPLETED' ? ensurePrelim(c).catch(() => c) : c)));
   const figs = cases.map((c) => ({ c, f: caseFigures(c) }));
 
   // One currency for the money figures: the most common among finished runs.
@@ -1222,7 +1362,7 @@ app.get('/api/report', auth.requireUser, wrap(async (req, res) => {
   const money = (f) => !f.currency || f.currency === currency;
   const otherCurrencyRuns = figs.filter(({ f }) => f.completed && !money(f)).length;
 
-  const totals = { approved: { amount: 0, count: 0 }, held: { amount: 0, count: 0 } };
+  const totals = { approved: { amount: 0, count: 0 }, held: { amount: 0, count: 0 }, partial: 0 };
   let auto = 0, finished = 0, unfinished = 0, inFlight = 0, awaiting = 0, runtimeSum = 0, runtimeRuns = 0;
   const vendors = new Map(), people = new Map(), approvers = new Map(), exc = new Map();
   let turnSum = 0, turnRuns = 0, excApproved = 0, excDisputed = 0, decided = 0;
@@ -1235,6 +1375,7 @@ app.get('/api/report', auth.requireUser, wrap(async (req, res) => {
     if (f.completed && money(f)) {
       if (f.approved > 0) { totals.approved.amount += f.approved; totals.approved.count++; }
       if (f.held > 0) { totals.held.amount += f.held; totals.held.count++; }
+      if (f.approved > 0 && f.held > 0) totals.partial++;
     }
     if (typeof f.runtimeMs === 'number' && f.runtimeMs >= 0) { runtimeSum += f.runtimeMs; runtimeRuns++; }
 

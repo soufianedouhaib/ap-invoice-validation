@@ -141,7 +141,7 @@
     countTo($('#k-approved'), t.approved.amount, asMoney);
     $('#k-approved-sub').textContent = plural(t.approved.count, 'invoice');
     countTo($('#k-held'), t.held.amount, asMoney);
-    $('#k-held-sub').textContent = plural(t.held.count, 'invoice');
+    $('#k-held-sub').textContent = plural(t.held.count, 'invoice') + (t.partial ? ', ' + t.partial + ' partly paid' : '');
     countTo($('#k-count'), r.runs, int);
     var bits = [];
     if (st.inFlight) bits.push(st.inFlight + ' in progress');
@@ -173,7 +173,8 @@
     countTo(fill(root, 'approved'), t.approved.amount, asMoney, 840);
     fill(root, 'approved-sub').textContent = 'approved for payment across ' + plural(t.approved.count, 'invoice');
     countTo(fill(root, 'held'), t.held.amount, asMoney, 840);
-    fill(root, 'held-sub').textContent = 'held back or disputed across ' + plural(t.held.count, 'invoice');
+    fill(root, 'held-sub').textContent = 'held back or disputed across ' + plural(t.held.count, 'invoice') +
+      (t.partial ? ' (' + t.partial + ' partly paid, so also counted above)' : '');
 
     var share = typeof st.rate === 'number' ? st.rate : null;
     var arc = fill(root, 'arc');

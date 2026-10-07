@@ -92,7 +92,7 @@
         return '<tr class="clickable" data-id="' + esc(c.jobId) + '" tabindex="0">' +
           '<td><strong>' + esc(title) + '</strong><span class="sub mono">Job ' + esc(c.jobId) + '</span></td>' +
           '<td>' + esc(c.summary.vendor || '—') + '</td>' +
-          '<td class="num">' + esc(c.summary.submittedTotal || '—') + '</td>' +
+          '<td class="num">' + esc(c.summary.displayAmount || '—') + (c.summary.displayNote ? '<span class="sub">' + esc(c.summary.displayNote) + '</span>' : '') + '</td>' +
           '<td>' + AP.statusPill(c.status) + (c.review && c.review.status === 'submitted' ? '<span class="sub">Reviewed by ' + esc(c.review.reviewedBy && c.review.reviewedBy.name) + '</span>' : '') + '</td>' +
           '<td>' + esc(c.submittedBy ? c.submittedBy.name : '—') + '</td>' +
           '<td>' + esc(AP.fmtDate(c.submittedAt)) + '</td>' +

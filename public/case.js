@@ -144,10 +144,10 @@
       var o = d.outputs || {};
       var s = c.summary || {};
       document.getElementById('tiles').innerHTML = [
-        ['Amount', s.submittedTotal || '—'],
+        ['Amount', s.displayAmount ? s.displayAmount + (s.displayNote === 'held' ? ' (held)' : '') : '—'],
         ['Vendor', s.vendor || '—'],
         ['Invoice no.', s.invoiceNumber || '—'],
-        ['Result', s.outcome || (c.hadReview ? 'Reviewed' : 'Auto-approved')],
+        ['Result', AP.decisionLabel(s.outcome) || (c.hadReview ? 'Reviewed' : 'Auto-approved')],
       ].map(function (t) { return '<div class="tile"><div class="label">' + esc(t[0]) + '</div><div class="value">' + esc(t[1]) + '</div></div>'; }).join('');
       document.getElementById('justification').innerHTML = o.justificationSummary ? AP.markdown(o.justificationSummary) : '<p class="muted">No summary was returned.</p>';
       document.getElementById('payment').innerHTML = o.paymentObject !== null && o.paymentObject !== undefined ? AP.renderValue(o.paymentObject) : '<p class="muted">Not returned.</p>';

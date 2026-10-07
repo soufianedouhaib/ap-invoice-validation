@@ -65,7 +65,10 @@
     PRICE_VARIANCE: 'Unit price above PO', QTY_INVOICE_VS_PO: 'Quantity differs from PO', QTY_INVOICE_VS_GR: 'Billed more than received',
     GR_RECEIPT_SHORT: 'Goods receipt short of PO', HEADER_TOTAL_VARIANCE: 'Invoice total above PO', VAT_VARIANCE: 'VAT amount off',
     CURRENCY_MISMATCH: 'Currency mismatch', PO_CROSS_REF_MISMATCH: 'PO reference mismatch', VENDOR_NOT_ACTIVE: 'Vendor not active',
-    VENDOR_NOT_FOUND: 'Vendor not in master', INPUT_PARSE_FAILED: 'Document could not be read',
+    VENDOR_NOT_FOUND: 'Vendor not in master', INPUT_PARSE_FAILED: 'Extractor output unreadable',
+    DOCUMENT_UNREADABLE: 'Document could not be read', HEADER_TOTAL_MISSING: 'Total missing',
+    LINE_NOT_ON_PO: 'Invoiced line not on PO', LINE_NOT_RECEIVED: 'Invoiced line not received',
+    LINE_ITEMS_UNPAIRABLE: 'Line items could not be paired', MATCH_ENGINE_ERROR: '3-way match error',
   };
   function niceType(t) {
     var s = String(t);
@@ -95,7 +98,8 @@
       return {
         num: num,
         title: niceType(pick(e, ['title', 'exception_type', 'exceptionType', 'type', 'category', 'code', 'name']) || 'Exception'),
-        desc: pick(e, ['description', 'summary', 'message', 'detail', 'details', 'reason', 'explanation']),
+        code: String(pick(e, ['type', 'exception_type', 'code']) || ''),
+        desc: AP.tidyText(pick(e, ['description', 'summary', 'message', 'detail', 'details', 'reason', 'explanation'])),
         meta: meta.join(' · '),
       };
     });
@@ -120,7 +124,7 @@
     // The Exception Presenter writes aligned plain text, not Markdown; keep its layout.
     var looksMarkdown = text && /(^|\n)\s*(#{1,6}\s|\|.*\|\s*\n\s*\|?\s*:?-{3,})/.test(text);
     pres.innerHTML = !text ? '<p class="muted">No presentation was included.</p>'
-      : looksMarkdown ? AP.markdown(text) : '<pre class="presentation">' + esc(text) + '</pre>';
+      : looksMarkdown ? AP.markdown(text) : '<pre class="presentation">' + esc(AP.tidyText(text)) + '</pre>';
 
     var brief = inputs.exceptionBrief;
     var briefEl = document.getElementById('brief');
@@ -171,7 +175,8 @@
         '<div class="exc-num">' + e.num + '</div>' +
         '<div><div class="exc-title">' + esc(e.title) + '</div>' +
           (e.meta ? '<div class="exc-meta">' + esc(e.meta) + '</div>' : '') +
-          (e.desc ? '<div class="exc-desc">' + esc(e.desc) + '</div>' : '') + '</div>' +
+          (e.desc ? '<div class="exc-desc">' + esc(e.desc) + '</div>' : '') +
+          (dcs === 'approve' && notReceived(e) ? '<div class="alert warn" style="margin-top:8px;padding:8px 10px">Approving this pays for goods the receipt does not show as delivered. The audit trail will record that.</div>' : '') + '</div>' +
         (closed ? '' : '<div class="seg" role="group" aria-label="Decision for exception ' + e.num + '">' +
           '<button type="button" class="approve" data-num="' + e.num + '" data-d="approve" aria-pressed="' + (dcs === 'approve') + '">Approve</button>' +
           '<button type="button" class="dispute" data-num="' + e.num + '" data-d="dispute" aria-pressed="' + (dcs === 'dispute') + '">Dispute</button>' +
@@ -229,12 +234,11 @@
         el.innerHTML = '<span class="pill bad plain">Past the workflow’s ' + r.timeoutMinutes + '-minute limit; Opus may no longer accept it</span>';
         return;
       }
-      var m = Math.floor(ms / 60000), s = Math.floor(ms / 1000) % 60;
-      el.textContent = 'About ' + m + ':' + (s < 10 ? '0' : '') + s + ' left before the workflow stops waiting';
+      el.textContent = AP.fmtRemaining(ms) + ' left before the workflow stops waiting';
     }
     tick();
     clearInterval(countdownTimer);
-    countdownTimer = setInterval(tick, 1000);
+    countdownTimer = setInterval(tick, 15000);
   }
 
   function renderClosed(d) {
@@ -282,8 +286,19 @@
     document.getElementById('confirm-ok').addEventListener('click', submit);
   }
 
+  // Paying for goods that were never received is the one override an auditor
+  // will always question, so "Approve all" leaves those disputed and says so.
+  var NOT_RECEIVED = /^(QTY_INVOICE_VS_GR|LINE_NOT_RECEIVED)$/;
+  function notReceived(e) { return NOT_RECEIVED.test(e.code) || /more than received|not received|no goods receipt/i.test(e.desc || ''); }
+
   function setAll(dd) {
-    exceptions.forEach(function (e) { decisions[e.num] = dd; });
+    exceptions.forEach(function (e) { decisions[e.num] = dd === 'approve' && notReceived(e) ? 'dispute' : dd; });
+    var held = exceptions.filter(notReceived).map(function (e) { return e.num; });
+    var note = document.getElementById('bulk-note');
+    if (note) {
+      note.hidden = !(dd === 'approve' && held.length);
+      note.textContent = held.length ? 'Exception' + (held.length > 1 ? 's ' : ' ') + joinNums(held) + ' left as disputed: ' + (held.length > 1 ? 'they bill' : 'it bills') + ' for goods not received. Approve ' + (held.length > 1 ? 'them' : 'it') + ' one by one only if the goods have since arrived.' : '';
+    }
     manual = false;
     renderExceptions();
     rebuild();

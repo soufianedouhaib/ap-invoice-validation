@@ -79,6 +79,48 @@
     return Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
   }
 
+
+  // "1433 minutes" reads as a bug; people read hours and minutes.
+  function fmtRemaining(ms) {
+    if (!(ms > 0)) return '0 min';
+    var mins = Math.floor(ms / 60000);
+    if (mins >= 60) return Math.floor(mins / 60) + ' h ' + (mins % 60) + ' min';
+    if (mins >= 1) return mins + ' min';
+    return Math.ceil(ms / 1000) + ' s';
+  }
+
+  // Workflow decision codes, in words.
+  var DECISION = {
+    auto_approved: 'Auto-approved', auto_approve: 'Auto-approved', approved: 'Approved',
+    approved_with_overrides: 'Approved with overrides', partially_approved: 'Partially approved',
+    held_for_query: 'Held for vendor query', held: 'Held', on_hold: 'On hold', rejected: 'Rejected', disputed: 'Disputed'
+  };
+  function decisionLabel(v) {
+    if (v === null || v === undefined || v === '') return null;
+    var k = String(v).trim().toLowerCase().replace(/[\s-]+/g, '_');
+    if (DECISION[k]) return DECISION[k];
+    var t = String(v).replace(/_/g, ' ').toLowerCase();
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  }
+
+  // Workflow prose, made to read like a person wrote it: no "item(s)", no
+  // em dashes between clauses, no "(—)" for a value that is missing.
+  // The workflow was first built for one client and still names it in a few
+  // strings; this console is shown to others, so the name is dropped on screen.
+  function brandFree(text) {
+    return typeof text === 'string' ? text.replace(/\bMAF(?:[_ ]+|(?=\b))/g, '').replace(/ {2,}/g, ' ') : text;
+  }
+
+  function tidyText(text) {
+    if (typeof text !== 'string') return text;
+    return brandFree(text)
+      .replace(/\s*\((?:—|–|-)\)/g, '')
+      .replace(/(\d+(?:\.\d+)?)(\s+[A-Za-z][A-Za-z ]{0,30}?)\(s\)/g, function (m, n, word) { return n + word + (Number(n) === 1 ? '' : 's'); })
+      .replace(/([A-Za-z])\(s\)/g, '$1s')
+      .replace(/\s+[—–]\s+(?=[A-Za-z0-9])/g, ', ')
+      .replace(/,\s*,/g, ',');
+  }
+
   var STATUS = {
     IN_PROGRESS: ['Processing', 'info'],
     PENDING: ['Queued', 'info'],
@@ -117,7 +159,7 @@
 
   function markdown(src) {
     if (src === null || src === undefined) return '';
-    var lines = String(src).replace(/\r\n?/g, '\n').split('\n');
+    var lines = tidyText(String(src)).replace(/\r\n?/g, '\n').split('\n');
     var out = [];
     var i = 0;
     function isTableSep(l) { return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/.test(l); }
@@ -195,7 +237,9 @@
     if (typeof v === 'number') return esc(fmtNum(v));
     var s = String(v);
     if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s) && !isNaN(new Date(s))) return '<span class="nowrap">' + esc(fmtDate(s)) + '</span>';
+    if (DECISION[s]) return esc(DECISION[s]);
     if (/^[a-z]+(_[a-z]+)+$/.test(s)) return esc(humanKey(s));
+    s = tidyText(s);
     if (/^https?:\/\//.test(s)) return '<a href="' + esc(s) + '" target="_blank" rel="noopener noreferrer">' + esc(s.length > 60 ? s.slice(0, 57) + '…' : s) + '</a>';
     return esc(s);
   }
@@ -248,6 +292,7 @@
   function renderValue(v) {
     var raw;
     try { raw = typeof v === 'string' ? v : JSON.stringify(v, null, 2); } catch (e) { raw = String(v); }
+    raw = brandFree(raw);
     return '<div class="jv">' + jsonView(v, 0) + '</div>' +
       (v && typeof v === 'object' ? '<details class="raw"><summary>Show raw JSON</summary><pre>' + esc(raw) + '</pre></details>' : '');
   }
@@ -583,5 +628,6 @@
     statusPill: statusPill, statusBucket: statusBucket, markdown: markdown, renderValue: renderValue,
     humanKey: humanKey, showError: showError, qs: qs, ROLE_LABEL: ROLE_LABEL, refreshReviewBadge: refreshReviewBadge,
     icon: icon, openSupport: openSupport, setSupportContext: setSupportContext,
+    fmtRemaining: fmtRemaining, decisionLabel: decisionLabel, tidyText: tidyText, brandFree: brandFree,
   };
 })();

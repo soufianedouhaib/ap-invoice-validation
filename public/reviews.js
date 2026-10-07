@@ -22,7 +22,7 @@
   function remaining(r) {
     var left = r.timeoutMinutes - r.ageMinutes;
     if (left <= 0) return '<span class="pill bad plain">Past time limit</span>';
-    var txt = left >= 60 ? Math.floor(left / 60) + ' h ' + (left % 60) + ' min left' : left + ' min left';
+    var txt = AP.fmtRemaining(left * 60000) + ' left';
     if (left <= 3) return '<span class="pill bad plain">' + txt + '</span>';
     return '<span class="pill warn plain">' + txt + '</span>';
   }

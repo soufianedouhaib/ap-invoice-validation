@@ -4,7 +4,7 @@
 // that holds the Opus service key and the only thing that calls Opus.
 //
 // Flow:
-//   1. Clerk uploads Invoice / PO / Goods Receipt PDFs  -> /api/upload-url (+ direct PUT) or /api/upload
+//   1. Clerk uploads Invoice / PO / Goods Receipt PDFs  -> /api/upload (server proxies the bytes to Opus)
 //   2. Clerk submits                                    -> /api/cases  (POST: /job/initiate + /job/execute)
 //   3. Browser polls                                    -> /api/cases/:id (this server asks Opus)
 //   4. If the 3-way match has exceptions, Opus PUSHES the Human Task to
@@ -483,6 +483,25 @@ async function refreshCase(c) {
 }
 
 // Keep stored debug data bounded (Redis values, and the page that shows them).
+// Reads the extractor outputs in the raw audit and names a known cause.
+const FILE_ACCESS_RE = /403|forbidden|could not be (retrieved|accessed)|access (restriction|error|denied)/i;
+function failureCause(raw) {
+  try {
+    const a = raw && raw.audit && (raw.audit.audit || raw.audit);
+    const nodes = a && a.nodes_execution_data;
+    const list = Array.isArray(nodes) ? nodes : Object.values(nodes || {});
+    const blocked = list.some((n) => (n.execution_output || []).some((o) => FILE_ACCESS_RE.test(String(o && o.value))));
+    if (blocked) {
+      return {
+        code: 'FILE_ACCESS',
+        message: 'Opus could not open the uploaded PDFs (403 Forbidden), so nothing was extracted and the 3-way match had no data. ' +
+          'Upload the three files again and resubmit; this version of the app uploads them through its server, which avoids this.',
+      };
+    }
+  } catch (e) { /* fall through */ }
+  return null;
+}
+
 function trimForStorage(v) {
   try {
     const s = JSON.stringify(v);
@@ -589,6 +608,7 @@ app.get('/api/cases/:id', auth.requireUser, wrap(async (req, res) => {
     outputs: current.outputs || null,
     failure: current.failure
       ? { failedNodes: current.failure.failedNodes, nextNodeToExecute: current.failure.nextNodeToExecute,
+          cause: failureCause(current.failure.raw),
           raw: req.user.role === 'admin' ? current.failure.raw || null : undefined }
       : null,
     progress,

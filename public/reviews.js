@@ -14,6 +14,7 @@
       document.getElementById('error').hidden = true;
       renderPending(d.pending || []);
       renderDone(d.completed || []);
+      renderNotDelivered(d.notDelivered || []);
       AP.refreshReviewBadge();
     }, function (err) { AP.showError(document.getElementById('error'), err); });
   }
@@ -64,6 +65,23 @@
           '<td>' + esc(r.reviewedBy ? r.reviewedBy.name : '—') + '<span class="sub">' + esc(AP.fmtDate(r.reviewedAt)) + '</span></td>' +
           '<td>' + AP.statusPill(c.status) + '</td>' +
         '</tr>';
+      }).join('') + '</tbody></table>';
+    bindRows(wrap, function (tr) { return '/case.html?id=' + encodeURIComponent(tr.getAttribute('data-id')); });
+  }
+
+  function renderNotDelivered(list) {
+    document.getElementById('nd-card').hidden = !list.length;
+    var wrap = document.getElementById('nd-wrap');
+    if (!list.length) { wrap.innerHTML = ''; return; }
+    wrap.innerHTML = '<table><thead><tr><th>Case</th><th>Submitted by</th><th>Waiting at</th><th>Since</th></tr></thead><tbody>' +
+      list.map(function (c) {
+        var s = c.atReviewStep || {};
+        var title = c.reference || (c.files.invoice && c.files.invoice.name) || 'Invoice pack';
+        return '<tr class="clickable" data-id="' + esc(c.jobId) + '" tabindex="0">' +
+          '<td><strong>' + esc(title) + '</strong><span class="sub mono">Job ' + esc(c.jobId) + '</span></td>' +
+          '<td>' + esc(c.submittedBy ? c.submittedBy.name : '—') + '</td>' +
+          '<td>' + esc(s.node || '—') + '<span class="sub">' + esc(s.opusStatus || '') + '</span></td>' +
+          '<td>' + esc(AP.fmtAgo(s.since)) + '</td></tr>';
       }).join('') + '</tbody></table>';
     bindRows(wrap, function (tr) { return '/case.html?id=' + encodeURIComponent(tr.getAttribute('data-id')); });
   }

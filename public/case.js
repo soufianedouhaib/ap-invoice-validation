@@ -107,7 +107,7 @@
       bar.classList.toggle('indeterminate', pct === null);
       bar.firstChild.style.width = pct === null ? '' : pct + '%';
       document.getElementById('progress-text').textContent = c.status === 'WAITING_REVIEW'
-        ? 'Paused until an approver decides on the exceptions.'
+        ? 'Paused: awaiting review by an AP Approver.'
         : (p.runningNode ? 'Running: ' + p.runningNode : 'Working…') + (p.nbNodes ? ' · ' + (p.nbExecutedNodes || 0) + ' of ' + p.nbNodes + ' steps' : '') + '. This page updates by itself.';
     }
 
@@ -152,12 +152,27 @@
   function renderReviewBanner(c) {
     var el = document.getElementById('review-banner');
     var r = c.review;
+    // Parked at the review step in Opus, but the review has not reached the app.
+    if ((!r || r.status !== 'pending') && c.atReviewStep && !c.atReviewStep.inApp) {
+      var approverView = me.role === 'approver' || me.role === 'admin';
+      el.innerHTML = '<div class="alert warn"><strong>Awaiting review by an AP Approver</strong>' +
+        'The 3-way match found exceptions, so this invoice is paused until an AP Approver approves or disputes them' +
+        ' (waiting since ' + esc(AP.fmtDate(c.atReviewStep.since)) + ').' +
+        (approverView
+          ? '<div style="margin-top:8px">Opus is holding this at its <b>' + esc(c.atReviewStep.node) + '</b> step (' + esc(c.atReviewStep.opusStatus) + '), ' +
+            'but the review has not been sent to this app yet, so it cannot be answered here. ' +
+            'It can be answered in Opus (Jobs), or connect the step to this app: replace it with an <b>Off-Platform Task</b> whose webhook is this app\'s address (see Settings).</div>'
+          : '<div style="margin-top:6px">You will see the decision here once it is made. No action is needed from you.</div>') +
+        '</div>';
+      return;
+    }
     if (!r) { el.innerHTML = ''; return; }
     if (r.status === 'pending') {
       var canReview = me.role === 'approver' || me.role === 'admin';
       var own = c.submittedBy && me.email === c.submittedBy.email;
       el.innerHTML = '<div class="alert warn"><strong>Waiting for an approver</strong>' +
-        'The 3-way match found exceptions. The workflow is paused until an approver approves or disputes them. Received ' + esc(AP.fmtAgo(r.receivedAt)) + '.' +
+        'The 3-way match found exceptions. The workflow is paused until an AP Approver approves or disputes them. Received ' + esc(AP.fmtAgo(r.receivedAt)) + '.' +
+        (!canReview ? '<div style="margin-top:6px">You will see the decision here once it is made. No action is needed from you.</div>' : '') +
         (canReview && !own ? '<div style="margin-top:10px"><a class="btn primary" href="/review.html?id=' + encodeURIComponent(r.dispatchId) + '">Open review</a></div>' : '') +
         (canReview && own ? '<div style="margin-top:6px">You submitted this one, so another approver has to review it.</div>' : '') +
         '</div>';

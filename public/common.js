@@ -84,7 +84,7 @@
     PENDING: ['Queued', 'info'],
     WAITING: ['Processing', 'info'],
     UNKNOWN: ['Processing', 'info'],
-    WAITING_REVIEW: ['Awaiting review', 'warn'],
+    WAITING_REVIEW: ['Awaiting AP Approver', 'warn'],
     COMPLETED: ['Completed', 'ok'],
     FAILED: ['Failed', 'bad'],
     TIMED_OUT: ['Timed out', 'bad'],

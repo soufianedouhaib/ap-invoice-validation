@@ -25,7 +25,9 @@
   AP.api('/api/demo', { allow401: true }).then(function (d) {
     if (!d || !d.enabled || !d.accounts.length) return;
     document.getElementById('demo').hidden = false;
-    document.getElementById('form-slot').appendChild(form);
+    // Demo build: the one-click accounts are the only way in, so the email
+    // form is hidden. It comes back when DEMO_MODE=false.
+    form.hidden = true;
     var wrap = document.getElementById('demo-buttons');
     wrap.innerHTML = d.accounts.map(function (a) {
       var t = DEMO_TEXT[a.role] || {};

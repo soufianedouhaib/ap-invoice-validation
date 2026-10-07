@@ -64,6 +64,10 @@ const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const TERMINAL = ['COMPLETED', 'FAILED', 'CANCELLED', 'TIMED_OUT'];
 const FAILURE = ['FAILED', 'CANCELLED', 'TIMED_OUT'];
 
+// Where each role lands after signing in.
+const HOME = { clerk: '/submit.html', approver: '/reviews.html', admin: '/' };
+const homeFor = (u) => (u && HOME[u.role]) || '/';
+
 function missingEnv() {
   const missing = [];
   if (!opus.OPUS_SERVICE_KEY) missing.push('OPUS_SERVICE_KEY');
@@ -139,7 +143,8 @@ app.get('/api/config', auth.requireRole('admin'), wrap(async (req, res) => {
 
 app.get('/api/me', (req, res) => {
   if (!req.user) return res.json({ user: null });
-  const out = { user: auth.publicUser(req.user) };
+  const out = { user: auth.publicUser(req.user), home: homeFor(req.user),
+    support: { workflowId: opus.OPUS_WORKFLOW_ID, email: process.env.SUPPORT_EMAIL || 'support@opus.com' } };
   if (req.user.role === 'admin') out.setupWarnings = missingEnv();
   res.json(out);
 });
@@ -164,7 +169,7 @@ app.post('/api/login', wrap(async (req, res) => {
   }
   await store.del(key);
   auth.setSessionCookie(req, res, user);
-  res.json({ user: auth.publicUser(user) });
+  res.json({ user: auth.publicUser(user), home: homeFor(user) });
 }));
 
 app.get('/api/demo', (req, res) => {
@@ -178,7 +183,7 @@ app.post('/api/demo-login', wrap(async (req, res) => {
   }
   const user = await auth.ensureDemoUser((req.body || {}).role);
   auth.setSessionCookie(req, res, user);
-  res.json({ user: auth.publicUser(user) });
+  res.json({ user: auth.publicUser(user), home: homeFor(user) });
 }));
 
 app.post('/api/logout', (req, res) => {
@@ -409,7 +414,15 @@ function summarise(paymentObject) {
   if (vendor && typeof vendor === 'object') vendor = vendor.name || vendor.vendor_name || null;
   const invoiceNumber = findKey(p, ['invoice_number', 'invoice_no', 'invoiceNumber', 'invoice_id', 'invoice_ref']);
   const outcome = findKey(p, ['payment_status', 'payment_decision', 'decision', 'outcome', 'status', 'action']);
+  const invoiceTotal = toNumber(findKey(p, ['invoice_total', 'invoice_amount', 'gross_amount', 'total_amount', 'grand_total']));
+  const held = toNumber(findKey(p, ['held_amount', 'amount_held', 'disputed_amount', 'hold_amount', 'amount_on_hold', 'blocked_amount']));
+  const disputed = toNumber(findKey(p, ['disputed_count', 'disputes', 'dispute_count']));
+  const overrides = toNumber(findKey(p, ['approved_overrides_count', 'overrides_count', 'approved_count']));
   return {
+    invoiceTotal: invoiceTotal,
+    heldAmount: held,
+    disputedCount: disputed,
+    overridesCount: overrides,
     amount: amount,
     currency,
     submittedTotal: amount !== null && amount !== undefined ? `${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${currency ? ' ' + currency : ''}` : null,
@@ -773,10 +786,11 @@ async function matchDispatch(record) {
   if (byRef.length === 1) return linkDispatch(record, byRef[0].c);
 
   // Last resort: the case whose review step started closest to when the
-  // dispatch arrived, if it is clearly the closest (within 3 minutes).
+  // dispatch arrived (Opus sends it as the step starts), if it is within 3
+  // minutes and clearly closer than the runner-up (by 10 seconds or more).
   const timed = pool.filter((x) => x.startedAt).sort((a, b) => Math.abs(receivedAt - a.startedAt) - Math.abs(receivedAt - b.startedAt));
-  if (timed.length && Math.abs(receivedAt - timed[0].startedAt) <= 3 * 60000 &&
-      (timed.length === 1 || Math.abs(receivedAt - timed[1].startedAt) > 5 * 60000)) {
+  const gap = (x) => Math.abs(receivedAt - x.startedAt);
+  if (timed.length && gap(timed[0]) <= 3 * 60000 && (timed.length === 1 || gap(timed[1]) - gap(timed[0]) >= 10000)) {
     return linkDispatch(record, timed[0].c);
   }
 
@@ -988,6 +1002,246 @@ function pickResponseOutputId(schema) {
   if (str) return str[0];
   return entries[0][0];
 }
+
+
+// ---------------------------------------------------------------------------
+// Report, export and clean-up
+//
+// One report for everyone; what it covers follows what the caller may see:
+// a clerk gets their own submissions, an approver or admin gets every case.
+// ---------------------------------------------------------------------------
+
+const DAY = 86400000;
+const ymd = (d) => new Date(d).toISOString().slice(0, 10);
+
+function caseFigures(c) {
+  const status = displayStatus(c);
+  const s = { ...(c.summary || {}), ...summarise(c.outputs && c.outputs.paymentObject) };
+  const decision = String(s.outcome || '').toLowerCase();
+  const completed = status === 'COMPLETED';
+  const unfinished = FAILURE.includes(status);
+  const reviewed = Boolean(c.review && c.review.status === 'submitted') || /override|review|partial|disput|held|hold/.test(decision);
+  const auto = completed && !reviewed && !c.atReviewStep && (/auto/.test(decision) || !c.hadReview);
+  let approved = completed && typeof s.amount === 'number' ? s.amount : 0;
+  let held = 0;
+  if (completed) {
+    if (typeof s.heldAmount === 'number') held = s.heldAmount;
+    else if (typeof s.invoiceTotal === 'number' && typeof s.amount === 'number' && s.invoiceTotal > s.amount) held = s.invoiceTotal - s.amount;
+    if (/reject|hold|block/.test(decision) && !/partial/.test(decision) && approved && !held) { held = approved; approved = 0; }
+  }
+  const runtimeMs = completed && c.completedAt ? new Date(c.completedAt) - new Date(c.submittedAt) : null;
+  return { status, s, completed, unfinished, reviewed, auto, approved, held, runtimeMs, currency: s.currency || null };
+}
+
+// "approve 1 and 3, dispute 2" -> { approve: [1,3], dispute: [2] }
+function parseDecision(text) {
+  const out = { approve: [], dispute: [] };
+  String(text || '').toLowerCase().split(/[,;\n]+(?=\s*(?:approve|dispute|reject|hold))/).forEach((part) => {
+    const kind = /^\s*approve/.test(part) ? 'approve' : /^\s*(dispute|reject|hold)/.test(part) ? 'dispute' : null;
+    if (!kind) return;
+    if (/\ball\b/.test(part)) { out[kind].push('all'); return; }
+    (part.match(/\d+/g) || []).forEach((n) => out[kind].push(Number(n)));
+  });
+  return out;
+}
+
+async function exceptionsFor(c) {
+  if (!c.review || !c.review.dispatchId) return [];
+  const d = await store.get(DISPATCH_KEY(c.review.dispatchId)).catch(() => null);
+  if (!d) return [];
+  const brief = reviewInputsFor(d).exceptionBrief;
+  const list = brief && Array.isArray(brief.exceptions) ? brief.exceptions : [];
+  const dec = parseDecision(d.response || (c.review && c.review.response));
+  const decided = d.status === 'submitted';
+  return list.map((e, i) => {
+    const num = Number(e.number || e.num || i + 1);
+    let verdict = null;
+    if (decided) {
+      if (dec.approve.includes('all') || dec.approve.includes(num)) verdict = 'approve';
+      else verdict = 'dispute'; // undecided exceptions default to dispute
+    }
+    return { type: String(e.type || e.exception_type || 'OTHER'), severity: e.severity || null, verdict };
+  });
+}
+
+function rangeFrom(q) {
+  const ok = (v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '');
+  return { from: ok(q.from), to: ok(q.to) };
+}
+
+function inRange(c, range) {
+  const d = ymd(c.submittedAt);
+  return (!range.from || d >= range.from) && (!range.to || d <= range.to);
+}
+
+function bump(map, key, label) {
+  if (!map.has(key)) map.set(key, { label, approved: 0, held: 0, total: 0, runs: 0, unfinished: 0, approvedCount: 0, heldCount: 0 });
+  return map.get(key);
+}
+
+app.get('/api/report', auth.requireUser, wrap(async (req, res) => {
+  const user = req.user;
+  const scope = user.role === 'clerk' ? 'mine' : 'all';
+  const range = rangeFrom(req.query);
+  let cases = (await allCases()).filter((c) => canSeeCase(user, c) && inRange(c, range));
+  // Bring a few stale in-flight cases up to date first, so the figures do not
+  // wait for someone to open those cases. Capped to respect Opus rate limits.
+  const stale = cases.filter((c) => !TERMINAL.includes(c.status) && Date.now() - new Date(c.lastCheckedAt || 0).getTime() > 30000).slice(0, 6);
+  if (stale.length && opus.OPUS_SERVICE_KEY) {
+    const fresh = await Promise.all(stale.map((c) => refreshCase(c).then((r) => r.c).catch(() => c)));
+    const byId = new Map(fresh.map((c) => [c.jobId, c]));
+    cases = cases.map((c) => byId.get(c.jobId) || c);
+  }
+  const figs = cases.map((c) => ({ c, f: caseFigures(c) }));
+
+  // One currency for the money figures: the most common among finished runs.
+  const ccyCount = {};
+  figs.forEach(({ f }) => { if (f.completed && f.currency) ccyCount[f.currency] = (ccyCount[f.currency] || 0) + 1; });
+  const currency = Object.keys(ccyCount).sort((a, b) => ccyCount[b] - ccyCount[a])[0] || 'AED';
+  const money = (f) => !f.currency || f.currency === currency;
+  const otherCurrencyRuns = figs.filter(({ f }) => f.completed && !money(f)).length;
+
+  const totals = { approved: { amount: 0, count: 0 }, held: { amount: 0, count: 0 } };
+  let auto = 0, finished = 0, unfinished = 0, inFlight = 0, awaiting = 0, runtimeSum = 0, runtimeRuns = 0;
+  const vendors = new Map(), people = new Map(), approvers = new Map(), exc = new Map();
+  let turnSum = 0, turnRuns = 0, excApproved = 0, excDisputed = 0, decided = 0;
+
+  for (const { c, f } of figs) {
+    if (f.completed) finished++;
+    else if (f.unfinished) unfinished++;
+    else { inFlight++; if (f.status === 'WAITING_REVIEW') awaiting++; }
+    if (f.auto) auto++;
+    if (f.completed && money(f)) {
+      if (f.approved > 0) { totals.approved.amount += f.approved; totals.approved.count++; }
+      if (f.held > 0) { totals.held.amount += f.held; totals.held.count++; }
+    }
+    if (typeof f.runtimeMs === 'number' && f.runtimeMs >= 0) { runtimeSum += f.runtimeMs; runtimeRuns++; }
+
+    const add = (map, key, label) => {
+      const row = bump(map, key, label);
+      row.runs++;
+      if (f.unfinished) row.unfinished++;
+      if (f.completed && money(f)) {
+        row.approved += f.approved; row.held += f.held; row.total += f.approved + f.held;
+        if (f.approved > 0) row.approvedCount++;
+        if (f.held > 0) row.heldCount++;
+      }
+    };
+    add(vendors, (f.s.vendor || 'Vendor not read').toLowerCase(), f.s.vendor || 'Vendor not read');
+    if (c.submittedBy) add(people, c.submittedBy.email || c.submittedBy.name, c.submittedBy.name || c.submittedBy.email);
+
+    if (c.review && c.review.status === 'submitted') {
+      decided++;
+      if (c.review.receivedAt && c.review.reviewedAt) { turnSum += new Date(c.review.reviewedAt) - new Date(c.review.receivedAt); turnRuns++; }
+    }
+    const list = await exceptionsFor(c);
+    const who = c.review && c.review.reviewedBy ? c.review.reviewedBy.name || c.review.reviewedBy.email : null;
+    for (const e of list) {
+      const row = exc.get(e.type) || { label: e.type, approved: 0, disputed: 0, pending: 0, total: 0 };
+      row.total++;
+      if (e.verdict === 'approve') { row.approved++; excApproved++; }
+      else if (e.verdict === 'dispute') { row.disputed++; excDisputed++; }
+      else row.pending++;
+      exc.set(e.type, row);
+      if (who && e.verdict) {
+        const a = approvers.get(who) || { label: who, approved: 0, disputed: 0, total: 0, runs: 0 };
+        a[e.verdict === 'approve' ? 'approved' : 'disputed']++;
+        a.total++;
+        approvers.set(who, a);
+      }
+    }
+    if (who) { const a = approvers.get(who) || { label: who, approved: 0, disputed: 0, total: 0, runs: 0 }; a.runs++; approvers.set(who, a); }
+  }
+
+  // Over time: by day when the period is short enough to read that way.
+  const times = figs.map(({ c }) => new Date(c.submittedAt).getTime());
+  const start = range.from ? Date.parse(range.from) : times.length ? Math.min(...times) : Date.now();
+  const endRaw = range.to ? Date.parse(range.to) : times.length ? Math.max(...times) : Date.now();
+  const end = Math.min(endRaw, Date.now());
+  const byDay = (end - start) / DAY <= 62;
+  const keyOf = (t) => (byDay ? ymd(t) : ymd(t).slice(0, 7));
+  const points = new Map();
+  if (byDay) for (let t = Date.parse(ymd(start)); t <= end; t += DAY) points.set(ymd(t), null);
+  else {
+    const d = new Date(start); d.setUTCDate(1);
+    for (; d.getTime() <= end; d.setUTCMonth(d.getUTCMonth() + 1)) points.set(ymd(d).slice(0, 7), null);
+  }
+  for (const k of points.keys()) points.set(k, { key: k, approved: { amount: 0, count: 0 }, held: { amount: 0, count: 0 }, runs: 0, unfinished: 0 });
+  for (const { c, f } of figs) {
+    const k = keyOf(c.submittedAt);
+    if (!points.has(k)) points.set(k, { key: k, approved: { amount: 0, count: 0 }, held: { amount: 0, count: 0 }, runs: 0, unfinished: 0 });
+    const pnt = points.get(k);
+    pnt.runs++;
+    if (f.unfinished) pnt.unfinished++;
+    if (f.completed && money(f)) {
+      if (f.approved > 0) { pnt.approved.amount += f.approved; pnt.approved.count++; }
+      if (f.held > 0) { pnt.held.amount += f.held; pnt.held.count++; }
+    }
+  }
+  const sortRows = (m) => [...m.values()].sort((a, b) => b.total - a.total || b.runs - a.runs);
+
+  res.json({
+    configured: true,
+    scope,
+    role: user.role,
+    range,
+    currency,
+    otherCurrencyRuns,
+    runs: figs.length,
+    totals,
+    straightThrough: { rate: finished ? auto / finished : null, auto, finished, reviewed: finished - auto, unfinished, inFlight, awaiting },
+    runtime: { averageMs: runtimeRuns ? runtimeSum / runtimeRuns : null, runs: runtimeRuns },
+    review: { decided, averageTurnaroundMs: turnRuns ? turnSum / turnRuns : null, exceptionsApproved: excApproved, exceptionsDisputed: excDisputed },
+    series: { unit: byDay ? 'day' : 'month', points: [...points.values()].sort((a, b) => (a.key < b.key ? -1 : 1)) },
+    vendors: sortRows(vendors),
+    people: scope === 'mine' ? [] : sortRows(people),
+    approvers: [...approvers.values()].sort((a, b) => b.total - a.total || b.runs - a.runs),
+    exceptions: [...exc.values()].sort((a, b) => b.total - a.total),
+  });
+}));
+
+function csvCell(v) {
+  const s = v === null || v === undefined ? '' : String(v);
+  // Guard against formula injection when the file is opened in a spreadsheet.
+  const safe = /^[=+\-@\t\r]/.test(s) ? "'" + s : s;
+  return /[",\n]/.test(safe) ? '"' + safe.replace(/"/g, '""') + '"' : safe;
+}
+
+app.get('/api/export.csv', auth.requireRole('approver', 'admin'), wrap(async (req, res) => {
+  const range = rangeFrom(req.query);
+  const cases = (await allCases()).filter((c) => inRange(c, range));
+  const head = ['Job id', 'Reference', 'Status', 'Vendor', 'Invoice number', 'Payable amount', 'Held amount', 'Currency', 'Decision',
+    'Submitted by', 'Submitted at', 'Finished at', 'Run time (s)', 'Reviewed by', 'Reviewed at', 'Approver decision'];
+  const lines = [head.map(csvCell).join(',')];
+  for (const c of cases) {
+    const f = caseFigures(c);
+    lines.push([c.jobId, c.reference, f.status, f.s.vendor, f.s.invoiceNumber, f.completed ? f.approved : '', f.completed ? f.held : '',
+      f.currency, f.s.outcome, c.submittedBy && c.submittedBy.name, c.submittedAt, c.completedAt,
+      f.runtimeMs !== null ? Math.round(f.runtimeMs / 1000) : '', c.review && c.review.reviewedBy && c.review.reviewedBy.name,
+      c.review && c.review.reviewedAt, c.review && c.review.response].map(csvCell).join(','));
+  }
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="ap-invoice-cases-${ymd(Date.now())}.csv"`);
+  res.send('﻿' + lines.join('\r\n'));
+}));
+
+// Admin clean-up: keep the three newest cases, delete the rest everywhere
+// (case list, report, export) together with their stored reviews.
+const KEEP_ON_CLEAR = 3;
+app.post('/api/cases/clear', auth.requireRole('admin'), wrap(async (req, res) => {
+  const cases = await allCases(); // newest first
+  const drop = cases.slice(KEEP_ON_CLEAR);
+  for (const c of drop) {
+    if (c.review && c.review.dispatchId) {
+      await store.del(DISPATCH_KEY(c.review.dispatchId));
+      await store.srem(PENDING_SET, c.review.dispatchId);
+    }
+    await store.del(CASE_KEY(c.jobId));
+    await store.srem(CASES_SET, c.jobId);
+  }
+  console.log(`[clear] ${req.user.email} cleared ${drop.length} case(s), kept ${cases.length - drop.length}`);
+  res.json({ cleared: drop.length, kept: cases.length - drop.length });
+}));
 
 // ---------------------------------------------------------------------------
 // Errors

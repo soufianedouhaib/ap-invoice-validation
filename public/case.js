@@ -123,7 +123,7 @@
       document.getElementById('failure-body').innerHTML =
         '<div class="alert bad"><strong>' + (c.status === 'TIMED_OUT' ? 'Timed out' : c.status === 'CANCELLED' ? 'Cancelled' : 'Failed') + '</strong>' +
         (expired ? 'The review was not answered before the workflow’s time limit. ' : '') +
-        (nodes.length ? 'Failed at: ' + esc(nodes.join(', ')) + '. ' : '') +
+        (f.cause ? esc(f.cause.message) + ' ' : nodes.length ? 'Failed at: ' + esc(nodes.join(', ')) + '. ' : '') +
         'Submit the invoice pack again to retry.</div>' +
         (me.role !== 'approver' ? '<p style="margin-top:12px"><a class="btn" href="/submit.html">Submit again</a></p>' : '') +
         (me.role === 'admin' ? (f.raw

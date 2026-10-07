@@ -1,7 +1,7 @@
 (function () {
   'use strict';
   var esc = AP.esc;
-  var MAX = 10 * 1024 * 1024;
+  var MAX = 4 * 1024 * 1024; // Vercel request body limit is 4.5 MB
   var SLOTS = [
     { key: 'invoice', title: 'Invoice', sub: 'The vendor’s invoice' },
     { key: 'purchaseOrder', title: 'Purchase Order', sub: 'The PO the invoice bills against' },
@@ -70,7 +70,7 @@
       if (st.state === 'error') stateHtml = '<div class="dz-state bad">' + esc(st.message) + '</div>';
       return '<div class="dropzone' + cls + '" data-key="' + s.key + '">' +
         '<div class="dz-title">' + esc(s.title) + ' <span class="muted small">· required</span></div>' +
-        '<div class="dz-sub">' + esc(s.sub) + '. PDF only, up to 10 MB.</div>' +
+        '<div class="dz-sub">' + esc(s.sub) + '. PDF only, up to 4 MB.</div>' +
         (st.name ? '<div class="dz-file mono">' + esc(st.name) + '</div>' : '<div class="dz-file muted">Drop a PDF here or click to choose</div>') +
         stateHtml +
         (st.state === 'done' || st.state === 'error' ? '<button type="button" class="btn small dz-remove" data-remove="' + s.key + '">Replace</button>' : '') +
@@ -104,7 +104,7 @@
       return renderZones();
     }
     if (file.size > MAX) {
-      slots[key] = { state: 'error', name: file.name, message: 'Larger than 10 MB.' };
+      slots[key] = { state: 'error', name: file.name, message: 'Larger than 4 MB.' };
       return renderZones();
     }
     slots[key] = { state: 'uploading', name: file.name };
@@ -118,25 +118,13 @@
     });
   }
 
-  // Direct-to-storage first (works for any size); fall back to the server
-  // proxy if the browser is not allowed to PUT to storage directly.
+  // Always upload through this app's server. Files PUT straight from the
+  // browser to Opus storage can be stored in a way Opus's own extractors then
+  // cannot open (403 Forbidden), which fails the run at Vendor Lookup.
   function uploadFile(file) {
-    return AP.api('/api/upload-url', { method: 'POST', body: { fileName: file.name.replace(/\.PDF$/, '.pdf'), size: file.size } })
-      .then(function (d) {
-        return fetch(d.presignedUrl, { method: 'PUT', body: new Blob([file]) }).then(function (res) {
-          if (!res.ok) throw new Error('direct upload ' + res.status);
-          return d.fileUrl;
-        });
-      })
-      .catch(function (err) {
-        if (err.status) throw err; // a real error from our own API, not a blocked PUT
-        if (file.size > 4 * 1024 * 1024) {
-          throw new Error('Upload blocked. Files over 4 MB need direct upload to be allowed; ask your admin.');
-        }
-        var fd = new FormData();
-        fd.append('file', file, file.name);
-        return AP.api('/api/upload', { method: 'POST', body: fd }).then(function (d) { return d.fileUrl; });
-      });
+    var fd = new FormData();
+    fd.append('file', file, file.name.replace(/\.PDF$/, '.pdf'));
+    return AP.api('/api/upload', { method: 'POST', body: fd }).then(function (d) { return d.fileUrl; });
   }
 
   function ready() {

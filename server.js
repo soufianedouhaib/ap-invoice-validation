@@ -111,8 +111,11 @@ app.get('/api/health', (req, res) => {
 
 app.get('/api/config', auth.requireRole('admin'), wrap(async (req, res) => {
   const ws = opus.OPUS_SERVICE_KEY ? await opus.resolveWorkspace().catch(() => null) : null;
+  const org = opus.OPUS_SERVICE_KEY ? await resolveOrg(null).catch(() => ({ id: null, source: 'none' })) : { id: ORG_ID_ENV || null, source: ORG_ID_ENV ? 'env' : 'none' };
   const base = `${req.protocol}://${req.get('host')}`;
   res.json({
+    orgId: org.id,
+    orgSource: org.source,
     opusHost: opus.OPUS_BASE_URL,
     workflowId: opus.OPUS_WORKFLOW_ID,
     workspaceConfigured: Boolean(ws && ws.id),
@@ -145,6 +148,7 @@ app.get('/api/me', (req, res) => {
   if (!req.user) return res.json({ user: null });
   const out = { user: auth.publicUser(req.user), home: homeFor(req.user),
     support: { workflowId: opus.OPUS_WORKFLOW_ID, email: process.env.SUPPORT_EMAIL || 'support@opus.com' } };
+  if (ORG_ID_ENV) out.support.orgId = ORG_ID_ENV;
   if (req.user.role === 'admin') out.setupWarnings = missingEnv();
   res.json(out);
 });
@@ -1003,6 +1007,122 @@ function pickResponseOutputId(schema) {
   return entries[0][0];
 }
 
+
+
+// ---------------------------------------------------------------------------
+// Support: everything Opus support asks for, gathered for one case.
+// The org id is not in the documented API responses, so OPUS_ORG_ID is the
+// reliable source; failing that, any organization id field Opus happens to
+// return on the workflow or the job is used.
+// ---------------------------------------------------------------------------
+
+const ORG_ID_ENV = process.env.OPUS_ORG_ID || process.env.OPUS_ORGANIZATION_ID || '';
+let orgCache = null;
+
+function findOrgId(obj, depth = 0) {
+  if (!obj || typeof obj !== 'object' || depth > 4) return null;
+  for (const [k, v] of Object.entries(obj)) {
+    if (/^(organi[sz]ation|org)_?id$/i.test(k) && (typeof v === 'string' || typeof v === 'number') && String(v).length > 2) return String(v);
+    if (/^(organi[sz]ation|org)$/i.test(k) && v && typeof v === 'object' && (v.id || v.uuid)) return String(v.id || v.uuid);
+  }
+  for (const v of Object.values(obj)) {
+    const found = v && typeof v === 'object' ? findOrgId(v, depth + 1) : null;
+    if (found) return found;
+  }
+  return null;
+}
+
+async function resolveOrg(job) {
+  if (ORG_ID_ENV) return { id: ORG_ID_ENV, source: 'env' };
+  const fromJob = findOrgId(job);
+  if (fromJob) return { id: fromJob, source: 'job' };
+  if (orgCache) return orgCache;
+  let id = null;
+  try { id = findOrgId(await opus.getWorkflow()); } catch (e) { /* not available */ }
+  orgCache = { id, source: id ? 'workflow' : 'none' };
+  return orgCache;
+}
+
+app.get('/api/support', auth.requireUser, wrap(async (req, res) => {
+  const org = opus.OPUS_SERVICE_KEY ? await resolveOrg(null).catch(() => ({ id: null, source: 'none' })) : { id: null, source: 'none' };
+  res.json({ workflowId: opus.OPUS_WORKFLOW_ID, orgId: org.id, orgSource: org.source });
+}));
+
+app.get('/api/cases/:id/support', auth.requireUser, wrap(async (req, res) => {
+  const c = await getCase(req.params.id);
+  if (!canSeeCase(req.user, c)) return res.status(404).json({ error: 'Case not found.' });
+
+  // Opus's own record of the job: reference id, version, workspace. Cached on
+  // the case once the job has finished, since it no longer changes.
+  let job = c.opusJob || null;
+  if (!job && opus.OPUS_SERVICE_KEY) {
+    try {
+      const d = await opus.getJob(c.jobId);
+      job = {
+        referenceId: d.referenceId || null,
+        versionLabel: d.workflowVersionLabel || null,
+        versionId: d.workflowVersionId || null,
+        workflowName: (d.workflow && d.workflow.name) || null,
+        workspace: d.workspace || null,
+        orgId: findOrgId(d),
+        finishedAt: d.finishedAt || null,
+      };
+      if (TERMINAL.includes(c.status)) await patchCase(c.jobId, { opusJob: job });
+    } catch (e) {
+      console.error('support job lookup failed', e.message);
+    }
+  }
+  const org = job && job.orgId ? { id: job.orgId, source: 'job' } : await resolveOrg(null).catch(() => ({ id: null, source: 'none' }));
+
+  const status = displayStatus(c);
+  const failed = FAILURE.includes(status);
+  const raw = c.failure && c.failure.raw;
+  const cause = failed ? failureCause(raw) : null;
+  const failedNodes = (c.failure && c.failure.failedNodes || []).map((n) => (typeof n === 'string' ? n : n.name || n.node_name || n.id)).filter(Boolean);
+
+  // The extractors' own words, which say why nothing could be read.
+  const warnings = [];
+  try {
+    const a = raw && raw.audit && (raw.audit.audit || raw.audit);
+    const nodes = a && a.nodes_execution_data;
+    for (const [name, n] of Object.entries(nodes || {})) {
+      for (const o of n.execution_output || []) {
+        const v = parseMaybeJson(o && o.value);
+        const list = v && typeof v === 'object' && Array.isArray(v.extraction_warnings) ? v.extraction_warnings : [];
+        for (const w of list.slice(0, 2)) warnings.push(`${Number.isNaN(Number(name)) ? name : 'Node ' + name}: ${String(w).slice(0, 180)}`);
+      }
+    }
+  } catch (e) { /* none */ }
+
+  let reason = null;
+  if (cause) reason = cause.message;
+  else if (failed && failedNodes.length) reason = `The run stopped at "${failedNodes[0]}".`;
+  else if (failed) reason = 'The run did not finish; Opus did not name a failed step.';
+  if (c.review && c.review.status === 'expired') reason = 'The approver review was not answered before the workflow time limit. ' + (reason || '');
+
+  res.json({
+    workflowId: opus.OPUS_WORKFLOW_ID,
+    workflowName: (job && job.workflowName) || 'AP Invoice Validation',
+    workflowVersion: job && job.versionLabel,
+    orgId: org.id,
+    orgSource: org.source,
+    workspace: (job && job.workspace) || null,
+    caseId: c.jobId,
+    reference: c.reference || null,
+    executionId: c.jobId,
+    executionReferenceId: job && job.referenceId,
+    reviewExecutionId: c.review && c.review.dispatchId || null,
+    status,
+    failed,
+    failedAt: failedNodes[0] || null,
+    failedNodes,
+    reason,
+    warnings: [...new Set(warnings)].slice(0, 4),
+    submittedAt: c.submittedAt,
+    finishedAt: c.completedAt || (job && job.finishedAt) || null,
+    submittedBy: c.submittedBy ? c.submittedBy.name : null,
+  });
+}));
 
 // ---------------------------------------------------------------------------
 // Report, export and clean-up

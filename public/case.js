@@ -9,7 +9,7 @@
   var STAGES = [
     { label: 'Read invoice, PO and goods receipt', nodes: ['invoice extractor', 'po extractor', 'gr extractor'] },
     { label: 'Vendor lookup and 3-way match', nodes: ['vendor lookup'] },
-    { label: 'Exception review by an approver', nodes: ['exception presenter', 'human task', 'resolution resolver', 'apply resolutions', 'invoice query narrative'], review: true },
+    { label: 'Exception review by an approver', nodes: ['exception presenter', 'human task', 'approver', 'review', 'off-platform', 'resolution resolver', 'apply resolutions', 'invoice query narrative'], review: true },
     { label: 'Justification summary', nodes: ['auto-approve builder', 'justification summary'] },
     { label: 'Payment object and audit trail', nodes: ['output assembly', 'output'] },
   ];

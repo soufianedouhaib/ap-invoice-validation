@@ -1016,7 +1016,8 @@ function pickResponseOutputId(schema) {
 // return on the workflow or the job is used.
 // ---------------------------------------------------------------------------
 
-const ORG_ID_ENV = process.env.OPUS_ORG_ID || process.env.OPUS_ORGANIZATION_ID || '';
+// Applied AI's Opus organization. OPUS_ORG_ID overrides it for another org.
+const ORG_ID_ENV = process.env.OPUS_ORG_ID || process.env.OPUS_ORGANIZATION_ID || 'b99049b2-1fe2-4338-aa11-5c0b2d17351f';
 let orgCache = null;
 
 function findOrgId(obj, depth = 0) {

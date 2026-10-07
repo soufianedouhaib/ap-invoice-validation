@@ -22,8 +22,9 @@
   function remaining(r) {
     var left = r.timeoutMinutes - r.ageMinutes;
     if (left <= 0) return '<span class="pill bad plain">Past time limit</span>';
-    if (left <= 3) return '<span class="pill bad plain">' + left + ' min left</span>';
-    return '<span class="pill warn plain">' + left + ' min left</span>';
+    var txt = left >= 60 ? Math.floor(left / 60) + ' h ' + (left % 60) + ' min left' : left + ' min left';
+    if (left <= 3) return '<span class="pill bad plain">' + txt + '</span>';
+    return '<span class="pill warn plain">' + txt + '</span>';
   }
 
   function renderPending(list) {

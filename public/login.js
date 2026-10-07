@@ -3,33 +3,36 @@
   var form = document.getElementById('login-form');
   var btn = document.getElementById('login-btn');
   var errEl = document.getElementById('login-error');
+  var esc = AP.esc;
 
-  function nextUrl() {
+  // A deep link (a case, a review) wins; otherwise each role lands on its own
+  // home: a clerk on New submission, an approver on Pending reviews.
+  function destination(home) {
     var n = AP.qs('next');
-    // Only same-site paths, never an absolute URL.
-    return n && n.charAt(0) === '/' && n.charAt(1) !== '/' ? n : '/';
+    var safe = n && n.charAt(0) === '/' && n.charAt(1) !== '/' && n !== '/' && n.indexOf('/index.html') !== 0 && n.indexOf('/login') !== 0;
+    return safe ? n : (home || '/');
   }
 
-  // Already signed in? Skip the form.
   AP.api('/api/me', { allow401: true }).then(function (me) {
-    if (me && me.user) location.replace(nextUrl());
+    if (me && me.user) location.replace(destination(me.home));
   }, function () { /* show the form */ });
 
   var DEMO_TEXT = {
-    clerk: 'Submits invoice packs and follows their own cases',
-    approver: 'Decides on exceptions in the review queue',
-    admin: 'Sees everything, manages users and settings',
+    clerk: { email: 'demo.clerk@demo.local', does: 'Lands on New submission' },
+    approver: { email: 'demo.approver@demo.local', does: 'Lands on Pending reviews' },
+    admin: { email: 'demo.admin@demo.local', does: 'Sees everything' },
   };
   AP.api('/api/demo', { allow401: true }).then(function (d) {
     if (!d || !d.enabled || !d.accounts.length) return;
     document.getElementById('demo').hidden = false;
-    document.getElementById('form-intro').hidden = true;
     document.getElementById('form-slot').appendChild(form);
     var wrap = document.getElementById('demo-buttons');
     wrap.innerHTML = d.accounts.map(function (a) {
-      return '<button type="button" class="sample" data-role="' + AP.esc(a.role) + '">' +
-        '<span class="sample-title">' + AP.esc(a.name) + '</span>' +
-        '<span class="sample-desc">' + AP.esc(DEMO_TEXT[a.role] || '') + '</span></button>';
+      var t = DEMO_TEXT[a.role] || {};
+      return '<button type="button" class="demo-account" data-role="' + esc(a.role) + '">' +
+        '<span class="avatar">' + esc((a.name || '?').replace(/^Demo\s+/, '').charAt(0)) + '</span>' +
+        '<span class="who"><b>' + esc(a.name) + '</b><span>' + esc(t.does || t.email || '') + '</span></span>' +
+        '<span class="pill plain">' + esc(AP.ROLE_LABEL[a.role] || a.role) + '</span></button>';
     }).join('');
     Array.prototype.forEach.call(wrap.querySelectorAll('[data-role]'), function (b) {
       b.addEventListener('click', function () {
@@ -37,7 +40,7 @@
         err.hidden = true;
         b.disabled = true;
         AP.api('/api/demo-login', { method: 'POST', body: { role: b.getAttribute('data-role') }, allow401: true })
-          .then(function () { location.replace(nextUrl()); })
+          .then(function (out) { location.replace(destination(out && out.home)); })
           .catch(function (e) { b.disabled = false; AP.showError(err, e); });
       });
     });
@@ -55,7 +58,7 @@
     btn.disabled = true;
     btn.textContent = 'Signing in…';
     AP.api('/api/login', { method: 'POST', body: { email: email, password: password }, allow401: true })
-      .then(function () { location.replace(nextUrl()); })
+      .then(function (out) { location.replace(destination(out && out.home)); })
       .catch(function (err) {
         AP.showError(errEl, err);
         btn.disabled = false;

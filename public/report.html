@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Report · AP Invoice Validation</title>
+  <link rel="icon" href="/brand-mark.png">
+  <link rel="stylesheet" href="/styles.css?v=10">
+</head>
+<body>
+  <main>
+    <div class="page-head">
+      <div>
+        <h1>Report</h1>
+        <p id="report-lede">How much the workflow cleared for payment, what it held back, and how long it took.</p>
+      </div>
+      <div class="rb-controls">
+        <select id="filter-preset" aria-label="Period">
+          <option value="this-month" selected>This month</option>
+          <option value="today">Today</option>
+          <option value="last-7">Last 7 days</option>
+          <option value="last-month">Last month</option>
+          <option value="last-90">Last 90 days</option>
+          <option value="custom">Custom dates</option>
+          <option value="">All time</option>
+        </select>
+        <span id="custom-wrap" hidden>
+          <input type="date" id="filter-from" aria-label="From">
+          <input type="date" id="filter-to" aria-label="To">
+        </span>
+        <a class="btn small" id="export-link" href="/api/export.csv" hidden>Export CSV</a>
+      </div>
+    </div>
+
+    <section class="card report-card">
+      <!-- The figures stay put whichever chapter is open. -->
+      <div class="ribbon" id="ribbon">
+        <div class="rb-figures">
+          <div class="rb"><span class="rb-k">Straight through</span><span class="rb-v" id="k-rate">—</span><span class="rb-s" id="k-rate-sub">—</span></div>
+          <div class="rb"><span class="rb-k">Approved for payment</span><span class="rb-v rb-ok" id="k-approved">—</span><span class="rb-s" id="k-approved-sub">—</span></div>
+          <div class="rb"><span class="rb-k">Held back</span><span class="rb-v rb-bad" id="k-held">—</span><span class="rb-s" id="k-held-sub">—</span></div>
+          <div class="rb"><span class="rb-k">Invoices</span><span class="rb-v" id="k-count">—</span><span class="rb-s" id="k-count-sub">—</span></div>
+          <div class="rb"><span class="rb-k" id="k-fifth-label">Average run time</span><span class="rb-v" id="k-fifth">—</span><span class="rb-s" id="k-fifth-sub">—</span></div>
+        </div>
+      </div>
+      <p class="fx-note" id="fx-note" hidden></p>
+
+      <div class="chapters">
+        <nav class="chapter-list" id="chapter-list" aria-label="Report chapters"></nav>
+        <div class="chapter-body" id="chapter-body" aria-live="polite"><div class="empty">Loading…</div></div>
+      </div>
+    </section>
+
+    <div class="alert warn" id="report-note" hidden style="margin-top:16px"></div>
+  </main>
+
+  <template id="tpl-headline">
+    <div class="ch-panel">
+      <div class="ch-head">
+        <div><p class="ch-eyebrow" data-slot="period">—</p><h2 class="ch-title">The period at a glance</h2></div>
+      </div>
+      <div class="headline">
+        <div class="headline-nums">
+          <div class="big big-ok" data-slot="approved">0</div>
+          <p class="big-sub" data-slot="approved-sub">—</p>
+          <div class="big big-bad" data-slot="held">0</div>
+          <p class="big-sub" data-slot="held-sub">—</p>
+        </div>
+        <figure class="ring-wrap">
+          <svg class="ring" viewBox="0 0 120 120" role="img" data-slot="ring-label">
+            <circle class="ring-track" cx="60" cy="60" r="48"></circle>
+            <circle class="ring-arc" cx="60" cy="60" r="48" data-slot="arc"></circle>
+            <text class="ring-pct" x="60" y="58" text-anchor="middle" data-slot="pct">0%</text>
+            <text class="ring-cap" x="60" y="75" text-anchor="middle">no review</text>
+          </svg>
+          <figcaption class="ring-note" data-slot="ring-note">—</figcaption>
+        </figure>
+      </div>
+      <div class="head-facts" data-slot="facts"></div>
+    </div>
+  </template>
+
+  <template id="tpl-time">
+    <div class="ch-panel">
+      <div class="ch-head">
+        <div><p class="ch-eyebrow">Over time</p><h2 class="ch-title" data-slot="title">Day by day</h2></div>
+        <div class="legend" data-slot="legend"></div>
+      </div>
+      <div data-slot="chart"></div>
+      <p class="empty" data-slot="empty" hidden><strong>Nothing to plot yet</strong>No invoice finished in this period.</p>
+      <details class="chart-data">
+        <summary>See the numbers</summary>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th data-slot="unit">Day</th><th class="num">Approved</th><th class="num">Held back</th><th class="num">Invoices</th></tr></thead>
+            <tbody data-slot="table"></tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+  </template>
+
+  <template id="tpl-rank">
+    <div class="ch-panel">
+      <div class="ch-head">
+        <div><p class="ch-eyebrow" data-slot="eyebrow">—</p><h2 class="ch-title" data-slot="title">—</h2></div>
+        <div class="legend" data-slot="legend"></div>
+      </div>
+      <div class="rank" data-slot="rank"></div>
+      <p class="empty" data-slot="empty" hidden></p>
+    </div>
+  </template>
+
+  <script src="/common.js?v=10"></script>
+  <script src="/report.js?v=10"></script>
+</body>
+</html>

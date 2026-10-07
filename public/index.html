@@ -4,7 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Cases · AP Invoice Validation</title>
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="icon" href="/brand-mark.png">
+  <link rel="stylesheet" href="/styles.css?v=10">
 </head>
 <body>
   <main>
@@ -13,8 +14,20 @@
         <h1>Cases</h1>
         <p id="scope-text">Every invoice pack run through this console, most recent first.</p>
       </div>
-      <a class="btn primary" href="/submit.html" id="new-btn" hidden>New submission</a>
+      <div class="toolbar">
+        <a class="btn small" href="/api/export.csv" id="export-link" hidden>Export CSV</a>
+        <button type="button" class="btn small" id="clear-runs" hidden>Clear runs</button>
+        <a class="btn primary" href="/submit.html" id="new-btn" hidden>New submission</a>
+      </div>
     </div>
+
+    <div class="alert warn confirm-row" id="clear-confirm" hidden style="margin-bottom:16px">
+      <span><strong style="display:inline">Clear runs?</strong> This deletes every case except the 3 newest, with their reviews. It cannot be undone.</span>
+      <span class="spacer"></span>
+      <button type="button" class="btn small danger-solid" id="clear-yes">Yes, clear them</button>
+      <button type="button" class="btn small" id="clear-no">Cancel</button>
+    </div>
+    <div class="alert info" id="clear-note" hidden style="margin-bottom:16px"></div>
 
     <div class="stats" id="stats"></div>
 
@@ -27,7 +40,7 @@
     </div>
     <div class="alert bad" id="error" hidden style="margin-top:16px"></div>
   </main>
-  <script src="/common.js?v=7"></script>
-  <script src="/cases.js?v=7"></script>
+  <script src="/common.js?v=10"></script>
+  <script src="/cases.js?v=10"></script>
 </body>
 </html>

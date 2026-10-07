@@ -252,49 +252,131 @@
       (v && typeof v === 'object' ? '<details class="raw"><summary>Show raw JSON</summary><pre>' + esc(raw) + '</pre></details>' : '');
   }
 
-  // ---------- chrome ----------
+  // ---------- chrome: the left rail ----------
 
+  var ICONS = {
+    submit: '<path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M4 16v2.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V16"/>',
+    cases: '<path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/>',
+    reviews: '<path d="M9 11.5l2 2 4-4.5"/><rect x="4" y="4" width="16" height="16" rx="3"/>',
+    report: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+    users: '<circle cx="9" cy="8" r="3.2"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0"/><path d="M16 5.2a3 3 0 0 1 0 5.6M18 19a5 5 0 0 0-2.6-4.4"/>',
+    settings: '<circle cx="12" cy="12" r="3.2"/><path d="M19.4 14.5a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5v.2a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1h.2a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/>',
+    theme: '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor"/>',
+    support: '<path d="M3 7l9 6 9-6"/><rect x="3" y="5" width="18" height="14" rx="2"/>',
+    signout: '<path d="M10 4H5.5A1.5 1.5 0 0 0 4 5.5v13A1.5 1.5 0 0 0 5.5 20H10"/><path d="M15 8l4 4-4 4M19 12H9"/>',
+    chevron: '<path d="M9 6l6 6-6 6"/>'
+  };
+
+  function icon(name) {
+    return '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICONS[name] || '') + '</svg>';
+  }
+
+  // What each role sees, in the order it works: a clerk submits first, an
+  // approver decides first, an admin oversees.
   function navLinks(user) {
-    var links = [{ href: '/', label: 'Cases', key: 'cases' }];
-    if (user.role === 'clerk' || user.role === 'admin') links.push({ href: '/submit.html', label: 'New submission', key: 'submit' });
-    if (user.role === 'approver' || user.role === 'admin') links.push({ href: '/reviews.html', label: 'Reviews', key: 'reviews', badge: true });
-    if (user.role === 'admin') links.push({ href: '/users.html', label: 'Users', key: 'users' });
-    links.push({ href: '/settings.html', label: 'Settings', key: 'settings' });
-    return links;
+    var r = user.role;
+    if (r === 'clerk') return [
+      { href: '/submit.html', label: 'New submission', key: 'submit', icon: 'submit' },
+      { href: '/', label: 'My cases', key: 'cases', icon: 'cases' },
+      { href: '/report.html', label: 'Report', key: 'report', icon: 'report' },
+      { href: '/settings.html', label: 'Settings', key: 'settings', icon: 'settings' }
+    ];
+    if (r === 'approver') return [
+      { href: '/reviews.html', label: 'Pending reviews', key: 'reviews', icon: 'reviews', badge: true },
+      { href: '/', label: 'All cases', key: 'cases', icon: 'cases' },
+      { href: '/report.html', label: 'Report', key: 'report', icon: 'report' },
+      { href: '/settings.html', label: 'Settings', key: 'settings', icon: 'settings' }
+    ];
+    return [
+      { href: '/', label: 'All cases', key: 'cases', icon: 'cases' },
+      { href: '/submit.html', label: 'New submission', key: 'submit', icon: 'submit' },
+      { href: '/reviews.html', label: 'Reviews', key: 'reviews', icon: 'reviews', badge: true },
+      { href: '/report.html', label: 'Report', key: 'report', icon: 'report' },
+      { href: '/users.html', label: 'Users', key: 'users', icon: 'users' },
+      { href: '/settings.html', label: 'Settings', key: 'settings', icon: 'settings' }
+    ];
+  }
+
+  function supportHref(me) {
+    var s = me.support || {};
+    var body = ['Workflow id: ' + (s.workflowId || 'unknown'), 'Reported by: ' + me.user.email, 'Page: ' + location.pathname, 'When: ' + new Date().toISOString(), '', 'What happened:', ''].join('\n');
+    return 'mailto:' + (s.email || 'support@opus.com') + '?subject=' + encodeURIComponent('AP Invoice Validation, question from the console') + '&body=' + encodeURIComponent(body);
+  }
+
+  var SIDE_KEY = 'ap-sidebar';
+  var pinned = false;
+  function hoverCapable() { return window.matchMedia && matchMedia('(hover: hover) and (pointer: fine)').matches; }
+  function paintSidebar(open) {
+    document.body.classList.toggle('side-open', Boolean(open));
+    var t = document.getElementById('side-toggle');
+    if (t) t.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+  function setPinned(next) {
+    pinned = Boolean(next);
+    document.body.classList.toggle('side-pinned', pinned);
+    paintSidebar(pinned);
+    var t = document.getElementById('side-toggle');
+    if (t) t.setAttribute('aria-pressed', pinned ? 'true' : 'false');
+    try { localStorage.setItem(SIDE_KEY, pinned ? 'open' : 'collapsed'); } catch (e) { /* private window */ }
   }
 
   function renderChrome(me, active) {
     var user = me.user;
-    var header = document.createElement('header');
-    header.className = 'topbar';
-    header.innerHTML =
-      '<div class="topbar-inner">' +
-        '<a class="brand" href="/"><span class="brand-mark" aria-hidden="true">AP</span><span>Invoice Validation</span></a>' +
-        '<nav class="nav" aria-label="Main">' + navLinks(user).map(function (l) {
-          return '<a href="' + l.href + '"' + (l.key === active ? ' class="active" aria-current="page"' : '') + '>' + esc(l.label) +
-            (l.badge ? '<span class="badge-count" id="review-badge" hidden></span>' : '') + '</a>';
-        }).join('') + '</nav>' +
-        '<div class="userbox">' +
-          '<div class="who"><strong>' + esc(user.name) + '</strong><span>' + esc(ROLE_LABEL[user.role] || user.role) + '</span></div>' +
-          '<button class="icon-btn" type="button" id="theme-toggle" title="Switch light / dark" aria-label="Switch light or dark theme">' +
-            '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.75a6.25 6.25 0 0 1 0 12.5z" fill="currentColor"/></svg></button>' +
-          '<button class="btn small" type="button" id="logout-btn">Sign out</button>' +
-        '</div>' +
+    document.body.classList.add('has-sidebar');
+    var scrim = document.createElement('div');
+    scrim.className = 'side-scrim';
+    document.body.appendChild(scrim);
+
+    var rail = document.createElement('aside');
+    rail.className = 'sidebar';
+    rail.setAttribute('aria-label', 'Main');
+    rail.innerHTML =
+      '<div class="side-top"><button type="button" class="side-toggle" id="side-toggle" aria-pressed="false" aria-expanded="false" title="Keep the menu open" aria-label="Keep the menu open">' + icon('chevron') + '</button></div>' +
+      '<a class="brand-lockup" href="' + esc(me.home || '/') + '" title="Applied AI, AP Invoice Validation">' +
+        '<img class="brand-mark" src="/brand-mark.png" alt="Applied AI" width="26" height="26">' +
+        '<span class="label">AP Invoice Validation<small>Applied AI · Opus</small></span></a>' +
+      '<nav class="side-nav">' + navLinks(user).map(function (l) {
+        return '<a href="' + l.href + '"' + (l.key === active ? ' aria-current="page"' : '') + ' title="' + esc(l.label) + '">' + icon(l.icon) +
+          '<span class="label">' + esc(l.label) + '</span>' + (l.badge ? '<span class="badge-count" id="review-badge" hidden></span>' : '') + '</a>';
+      }).join('') + '</nav>' +
+      '<div class="side-foot">' +
+        '<button type="button" class="side-link" id="theme-toggle" title="Switch light or dark">' + icon('theme') + '<span class="label">Light / dark</span></button>' +
+        '<a class="side-link" href="' + esc(supportHref(me)) + '" title="Contact Opus support">' + icon('support') + '<span class="label">Contact Opus support</span></a>' +
+        '<div class="side-account" title="' + esc(user.name + ', ' + (ROLE_LABEL[user.role] || user.role)) + '"><span class="avatar">' + esc((user.name || user.email || '?').charAt(0).toUpperCase()) + '</span>' +
+          '<span class="label"><span class="account-name">' + esc(user.name) + '</span><span class="account-role">' + esc(ROLE_LABEL[user.role] || user.role) + '</span></span></div>' +
+        '<button type="button" class="side-out" id="logout-btn" title="Sign out">' + icon('signout') + '<span class="label">Sign out</span></button>' +
       '</div>';
-    document.body.insertBefore(header, document.body.firstChild);
+    document.body.insertBefore(rail, document.body.firstChild);
 
     if (me.setupWarnings && me.setupWarnings.length) {
       var b = document.createElement('div');
       b.className = 'setup-banner';
       b.innerHTML = '<div class="inner"><strong>Setup incomplete:</strong> missing ' + esc(me.setupWarnings.join(', ')) +
         '. <a href="/settings.html">See Settings</a>. Environment changes only apply after the next Vercel deploy.</div>';
-      header.insertAdjacentElement('afterend', b);
+      var main = document.querySelector('main');
+      if (main) main.parentNode.insertBefore(b, main);
     }
 
     var footer = document.createElement('footer');
-    footer.className = 'site';
-    footer.textContent = 'AP Invoice Validation console · runs the Opus “AP Invoice Validation” workflow';
+    footer.className = 'footer';
+    footer.innerHTML = '<img src="/logo.png" alt="Applied AI"><span>AP Invoice Validation</span><span>Runs the Opus “AP Invoice Validation” workflow</span>';
     document.body.appendChild(footer);
+
+    document.getElementById('side-toggle').addEventListener('click', function () { setPinned(!pinned); });
+    var saved = false;
+    try { saved = localStorage.getItem(SIDE_KEY) === 'open'; } catch (e) { /* ignore */ }
+    setPinned(saved);
+    if (hoverCapable()) {
+      rail.addEventListener('mouseenter', function () { paintSidebar(true); });
+      rail.addEventListener('mouseleave', function () { if (!pinned) paintSidebar(false); });
+    }
+    rail.addEventListener('focusin', function () { paintSidebar(true); });
+    rail.addEventListener('focusout', function () {
+      if (pinned) return;
+      setTimeout(function () { if (!rail.contains(document.activeElement)) paintSidebar(false); }, 0);
+    });
+    scrim.addEventListener('click', function () { if (pinned) setPinned(false); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && pinned) setPinned(false); });
 
     document.getElementById('logout-btn').addEventListener('click', function () {
       api('/api/logout', { method: 'POST', allow401: true }).then(function () { location.href = '/login.html'; }, function () { location.href = '/login.html'; });
@@ -327,9 +409,10 @@
     api('/api/me', { allow401: true }).then(function (me) {
       if (!me || !me.user) return goLogin();
       if (options.roles && options.roles.indexOf(me.user.role) === -1) {
-        location.href = '/';
+        location.href = me.home || '/';
         return;
       }
+      window.AP.me = me;
       renderChrome(me, options.active);
       document.body.classList.remove('booting');
       onReady(me.user, me);
@@ -355,5 +438,6 @@
     esc: esc, api: api, boot: boot, fmtDate: fmtDate, fmtAgo: fmtAgo, fmtDuration: fmtDuration,
     statusPill: statusPill, statusBucket: statusBucket, markdown: markdown, renderValue: renderValue,
     humanKey: humanKey, showError: showError, qs: qs, ROLE_LABEL: ROLE_LABEL, refreshReviewBadge: refreshReviewBadge,
+    icon: icon,
   };
 })();

@@ -16,10 +16,41 @@
   AP.boot({ active: 'cases' }, function (user) {
     if (user.role === 'clerk') document.getElementById('scope-text').textContent = 'Invoice packs you have submitted, most recent first.';
     document.getElementById('new-btn').hidden = !(user.role === 'clerk' || user.role === 'admin');
+    if (user.role === 'approver') document.getElementById('scope-text').textContent = 'Every invoice pack in the console, most recent first.';
+    document.getElementById('export-link').hidden = user.role === 'clerk';
+    if (user.role === 'admin') wireClear();
     document.getElementById('search').addEventListener('input', function (e) { term = e.target.value.trim().toLowerCase(); render(); });
     load();
     setInterval(load, 30000);
   });
+
+  // Admin clean-up: keeps the 3 newest cases and deletes the rest. Asked on
+  // the page rather than in a browser dialog, so the list stays readable.
+  function wireClear() {
+    var btn = document.getElementById('clear-runs');
+    var box = document.getElementById('clear-confirm');
+    var note = document.getElementById('clear-note');
+    var yes = document.getElementById('clear-yes');
+    btn.hidden = false;
+    btn.addEventListener('click', function () { box.hidden = false; note.hidden = true; });
+    document.getElementById('clear-no').addEventListener('click', function () { box.hidden = true; });
+    yes.addEventListener('click', function () {
+      yes.disabled = true;
+      yes.textContent = 'Clearing…';
+      AP.api('/api/cases/clear', { method: 'POST' }).then(function (out) {
+        box.hidden = true;
+        note.hidden = false;
+        note.textContent = out.cleared
+          ? 'Cleared ' + out.cleared + (out.cleared === 1 ? ' case' : ' cases') + ', keeping the ' + out.kept + ' newest.'
+          : 'Nothing to clear: there ' + (out.kept === 1 ? 'is only 1 case' : 'are only ' + out.kept + ' cases') + '.';
+        load();
+      }, function (err) {
+        box.hidden = true;
+        note.hidden = false;
+        note.textContent = 'Nothing was cleared: ' + err.message;
+      }).then(function () { yes.disabled = false; yes.textContent = 'Yes, clear them'; });
+    });
+  }
 
   function load() {
     AP.api('/api/cases').then(function (d) {

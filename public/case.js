@@ -21,6 +21,11 @@
       return;
     }
     document.getElementById('crumb-id').textContent = 'Job ' + id;
+    // Contact Opus support from this page carries this case's ids and reason.
+    AP.setSupportContext(function () { return AP.api('/api/cases/' + encodeURIComponent(id) + '/support'); });
+    document.getElementById('failure-card').addEventListener('click', function (e) {
+      if (e.target.closest('[data-support]')) AP.openSupport();
+    });
     load();
   });
 
@@ -125,7 +130,8 @@
         (expired ? 'The review was not answered before the workflow’s time limit. ' : '') +
         (f.cause ? esc(f.cause.message) + ' ' : nodes.length ? 'Failed at: ' + esc(nodes.join(', ')) + '. ' : '') +
         'Submit the invoice pack again to retry.</div>' +
-        (me.role !== 'approver' ? '<p style="margin-top:12px"><a class="btn" href="/submit.html">Submit again</a></p>' : '') +
+        '<p class="toolbar" style="margin-top:12px">' + (me.role !== 'approver' ? '<a class="btn" href="/submit.html">Submit again</a>' : '') +
+          '<button type="button" class="btn" data-support="1">Contact Opus support</button></p>' +
         (me.role === 'admin' ? (f.raw
           ? '<details class="raw" open><summary>Technical details from Opus (admins only)</summary><pre>' + esc(JSON.stringify(f.raw, null, 2)) + '</pre></details>'
           : '<p class="muted small" style="margin-top:12px">No technical details were recorded for this case (it failed before this version of the app). Run it again to capture them.</p>') : '');

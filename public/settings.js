@@ -37,6 +37,9 @@
         ['Opus host', '<span class="mono">' + esc(c.opusHost) + '</span>'],
         ['Workflow id', '<span class="mono">' + esc(c.workflowId) + '</span>'],
         ['Service key', yesNo(c.serviceKeyConfigured)],
+        ['Organization id', c.orgId
+          ? '<span class="mono">' + esc(c.orgId) + '</span> <span class="muted small">(' + (c.orgSource === 'env' ? 'from OPUS_ORG_ID' : 'read from Opus') + ')</span>'
+          : '<span class="pill warn">Not set</span><div class="hint">Opus does not return it through the API. Copy it from your Opus organization settings and add OPUS_ORG_ID in Vercel, then redeploy. It goes into support emails.</div>'],
         ['Workspace used for uploads', c.workspaceId
           ? '<span class="mono">' + esc(c.workspaceId) + '</span> <span class="muted small">(' + (c.workspaceSource === 'workflow' ? 'read from the workflow' : 'from OPUS_WORKSPACE_ID') + ')</span>' +
             (c.workspaceEnvMismatch ? '<div class="hint">OPUS_WORKSPACE_ID is set to a different workspace; it is being ignored. You can delete it.</div>' : '')

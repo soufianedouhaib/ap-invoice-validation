@@ -297,10 +297,153 @@
     ];
   }
 
-  function supportHref(me) {
+  // ---------- Contact Opus support ----------
+  // One button everywhere. It writes the email for the person: the failure
+  // reason, the workflow, org, execution and case ids, and it offers a
+  // screenshot of the page to attach (a mailto link cannot attach files).
+
+  var supportContext = null; // a page may register function () -> Promise<details>
+  function setSupportContext(fn) { supportContext = fn; }
+
+  function baseDetails(me) {
     var s = me.support || {};
-    var body = ['Workflow id: ' + (s.workflowId || 'unknown'), 'Reported by: ' + me.user.email, 'Page: ' + location.pathname, 'When: ' + new Date().toISOString(), '', 'What happened:', ''].join('\n');
-    return 'mailto:' + (s.email || 'support@opus.com') + '?subject=' + encodeURIComponent('AP Invoice Validation, question from the console') + '&body=' + encodeURIComponent(body);
+    return { workflowId: s.workflowId, orgId: s.orgId || null, workflowName: 'AP Invoice Validation' };
+  }
+
+  function line(label, value) { return value ? label + ': ' + value : null; }
+
+  function supportEmail(me, d, shotName) {
+    var subject = 'AP Invoice Validation' + (d.caseId ? ' – job ' + d.caseId : '') +
+      (d.failed ? ' failed' + (d.failedAt ? ' at ' + d.failedAt : '') : d.status ? ' (' + d.status.toLowerCase().replace(/_/g, ' ') + ')' : ', question');
+    var parts = [
+      'Hello Opus support,', '',
+      d.reason ? 'Reason for the failure: ' + d.reason : 'Describe the issue here:',
+      d.failedAt ? 'Failed at step: ' + d.failedAt : null,
+      d.warnings && d.warnings.length ? 'Extractor messages:\n' + d.warnings.map(function (w) { return '  - ' + w; }).join('\n') : null,
+      '',
+      line('Workflow', d.workflowName + (d.workflowVersion ? ' (version ' + d.workflowVersion + ')' : '')),
+      line('Workflow ID', d.workflowId),
+      'Org ID: ' + (d.orgId || 'not set in the console (OPUS_ORG_ID)'),
+      d.workspace ? 'Workspace: ' + d.workspace.name + ' (' + d.workspace.id + ')' : null,
+      line('Execution ID', d.executionId),
+      line('Execution reference ID', d.executionReferenceId),
+      line('Case ID', d.caseId ? d.caseId + (d.reference ? ' (reference ' + d.reference + ')' : '') : null),
+      line('Review execution ID', d.reviewExecutionId),
+      line('Status', d.status),
+      line('Submitted', d.submittedAt ? new Date(d.submittedAt).toISOString() + (d.submittedBy ? ' by ' + d.submittedBy : '') : null),
+      line('Finished', d.finishedAt ? new Date(d.finishedAt).toISOString() : null),
+      '',
+      'Reported by: ' + me.user.name + ' <' + me.user.email + '>',
+      'Page: ' + location.href,
+      'When: ' + new Date().toISOString(),
+      shotName ? 'Screenshot: attached (' + shotName + ')' : 'Screenshot: please see attachment',
+    ].filter(function (x) { return x !== null; });
+    var body = parts.join('\n');
+    if (body.length > 1800) body = body.slice(0, 1790) + '\n…';
+    return 'mailto:' + ((me.support && me.support.email) || 'support@opus.com') + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+  }
+
+  function loadScript(src) {
+    return new Promise(function (resolve, reject) {
+      if (window.html2canvas) return resolve();
+      var sc = document.createElement('script');
+      sc.src = src; sc.onload = resolve; sc.onerror = function () { reject(new Error('Screenshot tool could not load.')); };
+      document.head.appendChild(sc);
+    });
+  }
+
+  function takeScreenshot(name) {
+    document.body.classList.remove('side-open');
+    return loadScript('/vendor/html2canvas.min.js').then(function () {
+      return window.html2canvas(document.body, {
+        scale: Math.min(2, window.devicePixelRatio || 1),
+        backgroundColor: getComputedStyle(document.body).backgroundColor,
+        ignoreElements: function (el) { return el.id === 'support-modal' || el.classList.contains('side-scrim') || el.id === 'chart-tip'; },
+        windowWidth: document.documentElement.clientWidth,
+      });
+    }).then(function (canvas) {
+      return new Promise(function (resolve) {
+        canvas.toBlob(function (blob) {
+          var a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = name;
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+          resolve();
+        }, 'image/png');
+      });
+    });
+  }
+
+  function openSupport() {
+    var me = window.AP.me;
+    if (!me) return;
+    var old = document.getElementById('support-modal');
+    if (old) old.remove();
+    var back = document.createElement('div');
+    back.className = 'modal-back';
+    back.id = 'support-modal';
+    back.innerHTML = '<div class="modal support-modal" role="dialog" aria-modal="true" aria-labelledby="support-title">' +
+      '<h2 id="support-title">Contact Opus support</h2>' +
+      '<p class="muted small" style="margin:-6px 0 14px">The email is written for you with the details below. A mailto link cannot attach files, so download the screenshot first and attach it to the email.</p>' +
+      '<dl class="kv" id="support-details"><dt>Details</dt><dd>Gathering…</dd></dl>' +
+      '<div class="alert bad" id="support-error" hidden style="margin-top:12px"></div>' +
+      '<div class="support-steps">' +
+        '<button type="button" class="btn" id="support-shot"><span class="step-n">1</span>Download screenshot</button>' +
+        '<a class="btn primary" id="support-mail" href="#"><span class="step-n">2</span>Open email</a>' +
+      '</div>' +
+      '<div class="actions"><button type="button" class="btn small" id="support-copy">Copy details</button><button type="button" class="btn small" id="support-close">Close</button></div>' +
+      '</div>';
+    document.body.appendChild(back);
+    var close = function () { back.remove(); };
+    back.addEventListener('click', function (e) { if (e.target === back) close(); });
+    document.getElementById('support-close').addEventListener('click', close);
+    document.addEventListener('keydown', function onKey(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); } });
+
+    var stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+    var details = baseDetails(me);
+    var shotName = 'ap-support-' + stamp + '.png';
+    var mail = document.getElementById('support-mail');
+
+    function render(d) {
+      details = d;
+      shotName = 'ap-support-' + (d.caseId ? 'job-' + d.caseId + '-' : '') + stamp + '.png';
+      var rows = [
+        ['Reason', d.reason], ['Failed at', d.failedAt], ['Workflow ID', d.workflowId],
+        ['Org ID', d.orgId || '<span class="pill warn plain">Not set</span>'], ['Execution ID', d.executionId],
+        ['Execution reference', d.executionReferenceId], ['Case ID', d.caseId ? d.caseId + (d.reference ? ' · ' + d.reference : '') : null],
+      ].filter(function (r) { return r[1]; });
+      document.getElementById('support-details').innerHTML = rows.map(function (r) {
+        var v = String(r[1]);
+        return '<dt>' + esc(r[0]) + '</dt><dd' + (/ID|reference/.test(r[0]) ? ' class="mono"' : '') + '>' + (v.indexOf('<span') === 0 ? v : esc(v)) + '</dd>';
+      }).join('');
+      mail.href = supportEmail(me, d, shotName);
+    }
+    render(details);
+    (supportContext ? supportContext() : Promise.resolve(null)).then(function (d) {
+      if (d) render(Object.assign({}, details, d));
+    }, function (err) { AP.showError(document.getElementById('support-error'), err); });
+
+    document.getElementById('support-shot').addEventListener('click', function () {
+      var b = this;
+      b.disabled = true;
+      var label = b.innerHTML;
+      b.textContent = 'Capturing…';
+      takeScreenshot(shotName).then(function () {
+        b.innerHTML = '<span class="step-n">✓</span>Screenshot saved';
+        b.disabled = false;
+      }, function (err) {
+        b.innerHTML = label;
+        b.disabled = false;
+        AP.showError(document.getElementById('support-error'), new Error(err.message + ' Use your own screenshot tool instead.'));
+      });
+    });
+    document.getElementById('support-copy').addEventListener('click', function () {
+      var text = decodeURIComponent(mail.href.split('&body=')[1] || '');
+      var b = this;
+      (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(function () { b.textContent = 'Copied'; }, function () { b.textContent = 'Copy failed'; });
+    });
   }
 
   var SIDE_KEY = 'ap-sidebar';
@@ -341,7 +484,7 @@
       }).join('') + '</nav>' +
       '<div class="side-foot">' +
         '<button type="button" class="side-link" id="theme-toggle" title="Switch light or dark">' + icon('theme') + '<span class="label">Light / dark</span></button>' +
-        '<a class="side-link" href="' + esc(supportHref(me)) + '" title="Contact Opus support">' + icon('support') + '<span class="label">Contact Opus support</span></a>' +
+        '<button type="button" class="side-link" id="support-btn" title="Contact Opus support">' + icon('support') + '<span class="label">Contact Opus support</span></button>' +
         '<div class="side-account" title="' + esc(user.name + ', ' + (ROLE_LABEL[user.role] || user.role)) + '"><span class="avatar">' + esc((user.name || user.email || '?').charAt(0).toUpperCase()) + '</span>' +
           '<span class="label"><span class="account-name">' + esc(user.name) + '</span><span class="account-role">' + esc(ROLE_LABEL[user.role] || user.role) + '</span></span></div>' +
         '<button type="button" class="side-out" id="logout-btn" title="Sign out">' + icon('signout') + '<span class="label">Sign out</span></button>' +
@@ -378,6 +521,7 @@
     scrim.addEventListener('click', function () { if (pinned) setPinned(false); });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && pinned) setPinned(false); });
 
+    document.getElementById('support-btn').addEventListener('click', openSupport);
     document.getElementById('logout-btn').addEventListener('click', function () {
       api('/api/logout', { method: 'POST', allow401: true }).then(function () { location.href = '/login.html'; }, function () { location.href = '/login.html'; });
     });
@@ -438,6 +582,6 @@
     esc: esc, api: api, boot: boot, fmtDate: fmtDate, fmtAgo: fmtAgo, fmtDuration: fmtDuration,
     statusPill: statusPill, statusBucket: statusBucket, markdown: markdown, renderValue: renderValue,
     humanKey: humanKey, showError: showError, qs: qs, ROLE_LABEL: ROLE_LABEL, refreshReviewBadge: refreshReviewBadge,
-    icon: icon,
+    icon: icon, openSupport: openSupport, setSupportContext: setSupportContext,
   };
 })();

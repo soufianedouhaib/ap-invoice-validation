@@ -179,9 +179,23 @@ app.post('/api/login', wrap(async (req, res) => {
   res.json({ user: auth.publicUser(user), home: homeFor(user) });
 }));
 
-app.get('/api/demo', (req, res) => {
-  res.json({ enabled: DEMO_MODE, accounts: DEMO_MODE ? auth.DEMO_ACCOUNTS.map((a) => ({ role: a.role, name: a.name })) : [] });
-});
+// The sign-in list: the three one-click demo accounts, then every other
+// active user an admin has added (they sign in with their password). Read
+// live from the user store, so adds and edits show up straight away.
+app.get('/api/demo', wrap(async (req, res) => {
+  if (!DEMO_MODE) return res.json({ enabled: false, accounts: [] });
+  const users = await auth.listUsers().catch(() => []);
+  const demoEmails = new Set(auth.DEMO_ACCOUNTS.map((a) => a.email));
+  const demo = auth.DEMO_ACCOUNTS.map((a) => {
+    const u = users.find((x) => x.email === a.email);
+    return { kind: 'demo', role: a.role, shownRole: (u && u.role) || a.role, name: (u && u.name) || a.name, active: !u || u.active !== false };
+  }).filter((a) => a.active);
+  const others = users
+    .filter((u) => !demoEmails.has(u.email) && u.active !== false)
+    .sort((a, b) => String(a.name).localeCompare(String(b.name)))
+    .map((u) => ({ kind: 'user', role: u.role, name: u.name, email: u.email }));
+  res.json({ enabled: true, accounts: demo.concat(others) });
+}));
 
 app.post('/api/demo-login', wrap(async (req, res) => {
   if (!DEMO_MODE) return res.status(404).json({ error: 'Demo accounts are switched off.' });

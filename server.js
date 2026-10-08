@@ -226,7 +226,7 @@ app.post('/api/me/password', auth.requireUser, wrap(async (req, res) => {
 // ---------------------------------------------------------------------------
 
 app.get('/api/users', auth.requireRole('admin'), wrap(async (req, res) => {
-  res.json({ users: (await auth.listUsers()).map(auth.publicUser) });
+  res.json({ users: (await auth.listUsers()).filter((u) => !u.removed).map(auth.publicUser) });
 }));
 
 app.post('/api/users', auth.requireRole('admin'), wrap(async (req, res) => {
@@ -241,6 +241,15 @@ app.patch('/api/users/:id', auth.requireRole('admin'), wrap(async (req, res) => 
   }
   const u = await auth.updateUser(req.params.id, { name, role, active, password });
   res.json({ user: auth.publicUser(u) });
+}));
+
+// Deleting a user signs them out everywhere (sessions are checked against the
+// user store on every request). Their past cases stay, under their name.
+app.delete('/api/users/:id', auth.requireRole('admin'), wrap(async (req, res) => {
+  if (req.params.id === req.user.id) return res.status(400).json({ error: 'You cannot delete your own account.' });
+  const u = await auth.deleteUser(req.params.id);
+  console.log(`[users] ${req.user.email} deleted ${u.email}`);
+  res.json({ ok: true, deleted: auth.publicUser(u) });
 }));
 
 // ---------------------------------------------------------------------------

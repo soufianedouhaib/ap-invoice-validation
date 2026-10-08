@@ -46,7 +46,7 @@
           : '<span class="pill bad">Unknown</span>'],
         ['Storage', c.storageDurable ? '<span class="pill ok">' + esc(c.storage) + '</span>' : '<span class="pill bad">In memory only — connect a KV / Redis store</span>'],
         ['Human Task webhook', '<span class="mono" style="word-break:break-all">' + esc(c.webhookUrl) + '</span><div class="hint">Paste this into the Human Task node (off-platform) in the Opus builder.' + (c.webhookSecretConfigured ? ' Replace &lt;WEBHOOK_SECRET&gt; with the value of that variable.' : ' Set WEBHOOK_SECRET to stop anyone else posting fake reviews.') + '</div>'],
-        ['Review time limit shown', esc(c.reviewTimeoutMinutes) + ' minutes <span class="muted small">(OPUS_REVIEW_TIMEOUT_MINUTES, default 10, keep it equal to the Human Task timeout in Opus)</span>'],
+        ['Review time limit shown', esc(c.reviewTimeoutMinutes) + ' minutes <span class="muted small">(REVIEW_TIMEOUT_MINUTES — keep it equal to the Human Task timeout in Opus)</span>'],
         ['Self-review', c.allowSelfReview ? 'Allowed' : 'Blocked: an approver cannot decide on an invoice they submitted'],
       ];
       var ids = [

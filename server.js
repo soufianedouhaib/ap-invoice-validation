@@ -54,7 +54,10 @@ const REVIEW_OUTPUT_FALLBACK = process.env.OPUS_REVIEW_OUTPUT_RESPONSE || 'workf
 
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || '';
 const ALLOW_SELF_REVIEW = String(process.env.ALLOW_SELF_REVIEW || '').toLowerCase() === 'true';
-const REVIEW_TIMEOUT_MINUTES = Number(process.env.REVIEW_TIMEOUT_MINUTES) || 10;
+// The Opus review task times out after 10 minutes. The old REVIEW_TIMEOUT_MINUTES
+// variable is ignored on purpose (a stale 1440 was left in Vercel); use
+// OPUS_REVIEW_TIMEOUT_MINUTES only if the Opus timeout itself changes.
+const REVIEW_TIMEOUT_MINUTES = Number(process.env.OPUS_REVIEW_TIMEOUT_MINUTES) || 10;
 const CALLBACK_VALUE_FORMAT = String(process.env.CALLBACK_VALUE_FORMAT || 'bare').toLowerCase();
 // Demo mode (on unless DEMO_MODE=false): the login page offers one-click
 // Demo Clerk / Demo Approver / Demo Admin accounts. Turn it off for real use.

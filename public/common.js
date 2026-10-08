@@ -85,7 +85,7 @@
     if (!(ms > 0)) return '0 min';
     var mins = Math.floor(ms / 60000);
     if (mins >= 60) return Math.floor(mins / 60) + ' h ' + (mins % 60) + ' min';
-    if (mins >= 1) return mins + ' min';
+    if (mins >= 1) return mins + ' min ' + (Math.floor(ms / 1000) % 60) + ' s';
     return Math.ceil(ms / 1000) + ' s';
   }
 

@@ -238,7 +238,7 @@
     }
     tick();
     clearInterval(countdownTimer);
-    countdownTimer = setInterval(tick, 15000);
+    countdownTimer = setInterval(tick, r.timeoutMinutes > 60 ? 15000 : 1000);
   }
 
   function renderClosed(d) {

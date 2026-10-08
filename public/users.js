@@ -12,6 +12,10 @@
     document.getElementById('modal').addEventListener('click', function (e) { if (e.target === this) close(); });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
     document.getElementById('user-form').addEventListener('submit', save);
+    document.getElementById('del-cancel').addEventListener('click', closeDelete);
+    document.getElementById('del-ok').addEventListener('click', confirmDelete);
+    document.getElementById('del-modal').addEventListener('click', function (e) { if (e.target === this) closeDelete(); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeDelete(); });
     document.getElementById('f-password').value = suggestPassword();
     load();
   });
@@ -41,7 +45,8 @@
           '<td>' + esc(AP.ROLE_LABEL[u.role] || u.role) + '</td>' +
           '<td>' + (u.active ? '<span class="pill ok">Active</span>' : '<span class="pill">Disabled</span>') + '</td>' +
           '<td>' + esc(AP.fmtDate(u.createdAt)) + '</td>' +
-          '<td class="num"><button type="button" class="btn small" data-edit="' + esc(u.id) + '">Edit</button></td></tr>';
+          '<td class="num"><span class="row-actions"><button type="button" class="btn small" data-edit="' + esc(u.id) + '">Edit</button>' +
+          (u.id === me.id ? '' : '<button type="button" class="btn small danger" data-del="' + esc(u.id) + '">Delete</button>') + '</span></td></tr>';
       }).join('') + '</tbody></table>';
     Array.prototype.forEach.call(wrap.querySelectorAll('[data-edit]'), function (b) {
       b.addEventListener('click', function () {
@@ -49,6 +54,34 @@
         open(u);
       });
     });
+    Array.prototype.forEach.call(wrap.querySelectorAll('[data-del]'), function (b) {
+      b.addEventListener('click', function () {
+        var u = users.filter(function (x) { return x.id === b.getAttribute('data-del'); })[0];
+        askDelete(u);
+      });
+    });
+  }
+
+  // Asked on the page, not in a browser dialog. Your own account has no
+  // Delete button, and the server refuses it too.
+  var deleting = null;
+  function askDelete(u) {
+    deleting = u;
+    document.getElementById('del-name').textContent = u.name + ' (' + u.email + ')';
+    document.getElementById('del-error').hidden = true;
+    document.getElementById('del-modal').hidden = false;
+    document.getElementById('del-cancel').focus();
+  }
+  function closeDelete() { document.getElementById('del-modal').hidden = true; deleting = null; }
+  function confirmDelete() {
+    if (!deleting) return;
+    var btn = document.getElementById('del-ok');
+    btn.disabled = true;
+    AP.api('/api/users/' + encodeURIComponent(deleting.id), { method: 'DELETE' }).then(function () {
+      btn.disabled = false;
+      closeDelete();
+      load();
+    }, function (err) { btn.disabled = false; AP.showError(document.getElementById('del-error'), err); });
   }
 
   function open(u) {

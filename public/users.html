@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Users · AP Invoice Validation</title>
   <link rel="icon" href="/brand-mark.png">
-  <link rel="stylesheet" href="/styles.css?v=22">
+  <link rel="stylesheet" href="/styles.css?v=23">
 </head>
 <body>
   <main>
@@ -47,7 +47,18 @@
       </form>
     </div>
   </main>
-  <script src="/common.js?v=22"></script>
-  <script src="/users.js?v=22"></script>
+  <div class="modal-back" id="del-modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="del-title">
+      <h2 id="del-title">Delete user?</h2>
+      <p>This removes <strong id="del-name"></strong>. They are signed out and can no longer sign in. Cases they submitted or reviewed are kept. This cannot be undone.</p>
+      <div class="alert bad" id="del-error" hidden style="margin-top:12px"></div>
+      <div class="actions">
+        <button type="button" class="btn" id="del-cancel">Cancel</button>
+        <button type="button" class="btn danger-solid" id="del-ok">Delete user</button>
+      </div>
+    </div>
+  </div>
+  <script src="/common.js?v=23"></script>
+  <script src="/users.js?v=23"></script>
 </body>
 </html>

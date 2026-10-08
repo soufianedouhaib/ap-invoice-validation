@@ -724,3 +724,7 @@ pre.presentation { white-space: pre-wrap; margin: 0; font-size: 13px; line-heigh
 .step-n { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 999px; border: 1px solid currentColor; font-size: 11.5px; font-weight: 600; }
 .support-modal .actions { margin-top: 14px; }
 @media (max-width: 520px) { .support-steps { grid-template-columns: 1fr; } }
+
+.demo-item { display: flex; flex-direction: column; gap: 6px; }
+.demo-pass { display: flex; gap: 8px; padding: 0 2px 4px 44px; }
+.demo-pass input { flex: 1 1 auto; min-width: 0; padding: 8px 10px; }

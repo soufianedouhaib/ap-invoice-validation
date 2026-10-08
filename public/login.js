@@ -18,32 +18,74 @@
   }, function () { /* show the form */ });
 
   var DEMO_TEXT = {
-    clerk: { email: 'demo.clerk@demo.local', does: 'Lands on New submission' },
-    approver: { email: 'demo.approver@demo.local', does: 'Lands on Pending reviews' },
-    admin: { email: 'demo.admin@demo.local', does: 'Sees everything' },
+    clerk: 'Lands on New submission',
+    approver: 'Lands on Pending reviews',
+    admin: 'Sees everything',
   };
+  var initial = function (name) { return esc(String(name || '?').replace(/^Demo\s+/, '').charAt(0).toUpperCase()); };
+
   AP.api('/api/demo', { allow401: true }).then(function (d) {
     if (!d || !d.enabled || !d.accounts.length) return;
     document.getElementById('demo').hidden = false;
-    // Demo build: the one-click accounts are the only way in, so the email
-    // form is hidden. It comes back when DEMO_MODE=false.
+    // Demo build: accounts are picked from the list, so the free email form
+    // is hidden. It comes back when DEMO_MODE=false.
     form.hidden = true;
     var wrap = document.getElementById('demo-buttons');
-    wrap.innerHTML = d.accounts.map(function (a) {
-      var t = DEMO_TEXT[a.role] || {};
-      return '<button type="button" class="demo-account" data-role="' + esc(a.role) + '">' +
-        '<span class="avatar">' + esc((a.name || '?').replace(/^Demo\s+/, '').charAt(0)) + '</span>' +
-        '<span class="who"><b>' + esc(a.name) + '</b><span>' + esc(t.does || t.email || '') + '</span></span>' +
-        '<span class="pill plain">' + esc(AP.ROLE_LABEL[a.role] || a.role) + '</span></button>';
+    wrap.innerHTML = d.accounts.map(function (a, i) {
+      var role = a.shownRole || a.role;
+      var sub = a.kind === 'demo' ? (DEMO_TEXT[role] || '') : a.email;
+      return '<div class="demo-item">' +
+        '<button type="button" class="demo-account" data-i="' + i + '">' +
+          '<span class="avatar">' + initial(a.name) + '</span>' +
+          '<span class="who"><b>' + esc(a.name) + '</b><span>' + esc(sub) + '</span></span>' +
+          '<span class="pill plain">' + esc(AP.ROLE_LABEL[role] || role) + '</span></button>' +
+        (a.kind === 'user'
+          ? '<form class="demo-pass" data-i="' + i + '" hidden novalidate>' +
+              '<input type="password" autocomplete="current-password" placeholder="Password for ' + esc(a.name) + '" aria-label="Password">' +
+              '<button class="btn primary small" type="submit">Sign in</button></form>'
+          : '') +
+        '</div>';
     }).join('');
-    Array.prototype.forEach.call(wrap.querySelectorAll('[data-role]'), function (b) {
+
+    Array.prototype.forEach.call(wrap.querySelectorAll('.demo-account'), function (b) {
       b.addEventListener('click', function () {
+        var a = d.accounts[Number(b.getAttribute('data-i'))];
         var err = document.getElementById('demo-error');
         err.hidden = true;
+        if (a.kind === 'user') {
+          // Added users sign in with the password their admin gave them.
+          Array.prototype.forEach.call(wrap.querySelectorAll('.demo-pass'), function (f) { f.hidden = f !== b.nextElementSibling ? true : !f.hidden; });
+          var f = b.nextElementSibling;
+          if (!f.hidden) f.querySelector('input').focus();
+          return;
+        }
         b.disabled = true;
-        AP.api('/api/demo-login', { method: 'POST', body: { role: b.getAttribute('data-role') }, allow401: true })
+        AP.api('/api/demo-login', { method: 'POST', body: { role: a.role }, allow401: true })
           .then(function (out) { location.replace(destination(out && out.home)); })
           .catch(function (e) { b.disabled = false; AP.showError(err, e); });
+      });
+    });
+
+    Array.prototype.forEach.call(wrap.querySelectorAll('.demo-pass'), function (f) {
+      f.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var a = d.accounts[Number(f.getAttribute('data-i'))];
+        var input = f.querySelector('input');
+        var btn2 = f.querySelector('button');
+        var err = document.getElementById('demo-error');
+        err.hidden = true;
+        if (!input.value) { input.focus(); return; }
+        btn2.disabled = true;
+        btn2.textContent = 'Signing in…';
+        AP.api('/api/login', { method: 'POST', body: { email: a.email, password: input.value }, allow401: true })
+          .then(function (out) { location.replace(destination(out && out.home)); })
+          .catch(function (e2) {
+            btn2.disabled = false;
+            btn2.textContent = 'Sign in';
+            input.value = '';
+            input.focus();
+            AP.showError(err, e2);
+          });
       });
     });
   }, function () { /* no demo */ });

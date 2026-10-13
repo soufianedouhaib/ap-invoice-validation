@@ -281,7 +281,7 @@ app.post('/api/upload', auth.requireRole(...SUBMIT_ROLES), upload.single('file')
   const isPdf = file.buffer.slice(0, 5).toString('latin1') === '%PDF-';
   if (!isPdf) return res.status(400).json({ error: `${file.originalname} is not a PDF.` });
   const { presignedUrl, fileUrl } = await opus.presignUpload(file.originalname || 'document.pdf');
-  await opus.putToPresigned(presignedUrl, file.buffer);
+  await opus.putToPresigned(presignedUrl, file.buffer, file.originalname || 'document.pdf');
   res.json({ fileUrl });
 }));
 
@@ -680,6 +680,15 @@ function failureCause(raw) {
     const nodes = a && a.nodes_execution_data;
     const list = Array.isArray(nodes) ? nodes : Object.values(nodes || {});
     const blocked = list.some((n) => (n.execution_output || []).some((o) => FILE_ACCESS_RE.test(String(o && o.value))));
+    const readersDead = Object.entries(nodes || {}).filter(([k]) => /extractor/i.test(k));
+    if (readersDead.length && readersDead.every(([, n]) => String(n.execution_status).toUpperCase() === 'FAILED' &&
+        (n.execution_output || []).every((o) => o.value === null || o.value === undefined))) {
+      return {
+        code: 'READERS_FAILED',
+        message: 'The document readers in Opus (Invoice, PO and GR Extractors) failed on the uploaded PDFs without returning anything, so the run stopped at the first step. ' +
+          'Upload the files again and resubmit; if it keeps happening, contact Opus support from this page.',
+      };
+    }
     if (blocked) {
       return {
         code: 'FILE_ACCESS',

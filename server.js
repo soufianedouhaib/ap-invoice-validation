@@ -264,11 +264,20 @@ app.delete('/api/users/:id', auth.requireRole('admin'), wrap(async (req, res) =>
 
 const SUBMIT_ROLES = ['clerk', 'admin'];
 
+const UPLOAD_CFG_KEY = 'ap:upload-config';
+let uploadCfgCache = null;
+async function uploadConfig() {
+  if (uploadCfgCache && Date.now() - uploadCfgCache.at < 15000) return uploadCfgCache.cfg;
+  const cfg = (await store.get(UPLOAD_CFG_KEY).catch(() => null)) || {};
+  uploadCfgCache = { at: Date.now(), cfg };
+  return cfg;
+}
+
 app.post('/api/upload-url', auth.requireRole(...SUBMIT_ROLES), wrap(async (req, res) => {
   const { fileName, size } = req.body || {};
   if (!fileName || !/\.pdf$/i.test(fileName)) return res.status(400).json({ error: 'Only PDF files are accepted.' });
   if (Number(size) > MAX_FILE_BYTES) return res.status(400).json({ error: 'Each file must be 10 MB or smaller.' });
-  const { presignedUrl, fileUrl } = await opus.presignUpload(fileName);
+  const { presignedUrl, fileUrl } = await opus.presignUpload(fileName, await uploadConfig());
   if (!presignedUrl || !fileUrl) throw new Error('Opus did not return an upload URL.');
   res.json({ presignedUrl, fileUrl });
 }));
@@ -280,43 +289,104 @@ app.post('/api/upload', auth.requireRole(...SUBMIT_ROLES), upload.single('file')
   if (!file) return res.status(400).json({ error: 'No file received.' });
   const isPdf = file.buffer.slice(0, 5).toString('latin1') === '%PDF-';
   if (!isPdf) return res.status(400).json({ error: `${file.originalname} is not a PDF.` });
-  const { presignedUrl, fileUrl } = await opus.presignUpload(file.originalname || 'document.pdf');
-  await opus.putToPresigned(presignedUrl, file.buffer, file.originalname || 'document.pdf');
+  const cfg = await uploadConfig();
+  const { presignedUrl, fileUrl } = await opus.presignUpload(file.originalname || 'document.pdf', cfg);
+  await opus.putToPresigned(presignedUrl, file.buffer, file.originalname || 'document.pdf', cfg);
   res.json({ fileUrl });
 }));
 
-// Admin diagnostic: upload one PDF in a chosen way and report exactly what
-// Opus storage answered, so a reader failure can be traced to the upload.
-const UPLOAD_VARIANTS = {
-  current: { ext: '.pdf', scope: 'workspace', type: 'application/pdf' },
-  legacy: { ext: 'pdf', scope: 'workspace', type: null },
-  unlisted: { ext: '.pdf', scope: null, type: 'application/pdf' },
-  organization: { ext: '.pdf', scope: 'organization', type: 'application/pdf' },
-  user: { ext: '.pdf', scope: 'user', type: 'application/pdf' },
-  octet: { ext: '.pdf', scope: 'workspace', type: 'application/octet-stream' },
+// Admin diagnostics for file uploads. Opus has changed its storage rules more
+// than once; these let an admin find a combination its document readers can
+// open, and switch the app to it at runtime, without a redeploy.
+//   POST /api/admin/upload-test   multipart: file + any of scope, dotExt, type,
+//                                 withWorkspace, withWorkflow, raw (JSON body
+//                                 override), run=yes (start a job reading it)
+//   GET  /api/admin/probe?url=    what Opus storage returns for a file URL
+//   GET/POST /api/admin/upload-config   the settings real uploads use
+const bool = (v, d) => (v === undefined || v === '' ? d : v === true || v === 'true' || v === 'yes' || v === '1');
+const CANVAS_FILES = {
+  invoice: 'https://files.opus.com/media/private/uploaded/media_85479e75-24f3-44ba-bb4a-c81492a49796.pdf',
+  purchaseOrder: 'https://files.opus.com/media/private/uploaded/media_d188be7c-b7cd-48ea-8770-484fd5e83e7b.pdf',
+  goodsReceipt: 'https://files.opus.com/media/private/uploaded/media_9cbc76a4-084f-4a58-8b23-b337e419d968.pdf',
 };
+
+async function probe(url) {
+  const out = {};
+  for (const [label, headers] of [['withKey', { 'x-service-key': opus.OPUS_SERVICE_KEY }], ['anonymous', {}]]) {
+    try {
+      const g = await fetch(url, { headers, redirect: 'manual', signal: AbortSignal.timeout(10000) });
+      const buf = Buffer.from(await g.arrayBuffer());
+      out[label] = { status: g.status, type: g.headers.get('content-type'), location: g.headers.get('location'), bytes: buf.length, head: buf.slice(0, 120).toString('latin1') };
+    } catch (e) { out[label] = { error: e.message }; }
+  }
+  return out;
+}
+
+app.get('/api/admin/probe', auth.requireRole('admin'), wrap(async (req, res) => {
+  res.json(await probe(String(req.query.url || '')));
+}));
+
+app.get('/api/admin/upload-config', auth.requireRole('admin'), wrap(async (req, res) => {
+  res.json({ defaults: opus.DEFAULT_UPLOAD, stored: (await store.get(UPLOAD_CFG_KEY)) || null });
+}));
+app.post('/api/admin/upload-config', auth.requireRole('admin'), wrap(async (req, res) => {
+  const b = req.body || {};
+  if (b.reset) { await store.del(UPLOAD_CFG_KEY); uploadCfgCache = null; return res.json({ stored: null }); }
+  const cfg = {
+    scope: typeof b.scope === 'string' ? b.scope : opus.DEFAULT_UPLOAD.scope,
+    dotExt: bool(b.dotExt, true), type: typeof b.type === 'string' ? b.type : 'mime',
+    withWorkspace: bool(b.withWorkspace, true), withWorkflow: bool(b.withWorkflow, true),
+  };
+  await store.set(UPLOAD_CFG_KEY, cfg);
+  uploadCfgCache = null;
+  console.log(`[upload-config] ${req.user.email} set ${JSON.stringify(cfg)}`);
+  res.json({ stored: cfg });
+}));
+
 app.post('/api/admin/upload-test', auth.requireRole('admin'), upload.single('file'), wrap(async (req, res) => {
-  const v = UPLOAD_VARIANTS[(req.body && req.body.variant) || 'current'];
-  if (!v || !req.file) return res.status(400).json({ error: 'variant and file required', variants: Object.keys(UPLOAD_VARIANTS) });
-  const ws = await opus.resolveWorkspace();
-  const body = { fileExtension: v.ext, originalName: req.file.originalname };
-  if (v.scope) Object.assign(body, { accessScope: v.scope, workspaceId: ws.id, workflowId: opus.OPUS_WORKFLOW_ID });
-  const out = { variant: req.body.variant, request: body, bytes: req.file.size, head: req.file.buffer.slice(0, 8).toString('latin1') };
+  if (!req.file) return res.status(400).json({ error: 'file required' });
+  const q = req.body || {};
+  const cfg = {
+    scope: q.scope || 'workspace', dotExt: bool(q.dotExt, true), type: q.type || 'mime',
+    withWorkspace: bool(q.withWorkspace, true), withWorkflow: bool(q.withWorkflow, true),
+  };
+  const out = { cfg, bytes: req.file.size };
   try {
-    const p = await opus.opusFetch('/job/file/upload', { method: 'POST', body: JSON.stringify(body) }, { retries: 0 });
-    out.fileUrl = p.fileUrl;
-    out.presignHost = String(p.presignedUrl).split('?')[0];
-    const put = await fetch(p.presignedUrl, { method: 'PUT', body: req.file.buffer, headers: v.type ? { 'Content-Type': v.type } : {} });
-    out.put = { status: put.status, body: (await put.text()).slice(0, 300), etag: put.headers.get('etag'), type: put.headers.get('content-type') };
-    for (const [label, headers] of [['withKey', { 'x-service-key': opus.OPUS_SERVICE_KEY }], ['anonymous', {}]]) {
-      try {
-        const g = await fetch(p.fileUrl, { headers, signal: AbortSignal.timeout(10000) });
-        const buf = Buffer.from(await g.arrayBuffer());
-        out['get_' + label] = { status: g.status, type: g.headers.get('content-type'), bytes: buf.length, head: buf.slice(0, 8).toString('latin1') };
-      } catch (e) { out['get_' + label] = { error: e.message }; }
+    let p;
+    if (q.raw) {
+      out.rawBody = JSON.parse(q.raw);
+      p = await opus.opusFetch('/job/file/upload', { method: 'POST', body: q.raw }, { retries: 0 });
+    } else {
+      p = await opus.presignUpload(req.file.originalname, cfg);
+    }
+    out.presign = { keys: Object.keys(p || {}), host: String(p.presignedUrl).split('?')[0], fileUrl: p.fileUrl, extra: Object.fromEntries(Object.entries(p).filter(([k]) => !['presignedUrl', 'fileUrl'].includes(k))) };
+    const ext = req.file.originalname.split('.').pop().toLowerCase();
+    const type = cfg.type === 'mime' ? (ext === 'pdf' ? 'application/pdf' : 'application/octet-stream') : cfg.type !== 'none' ? cfg.type : null;
+    const put = await fetch(p.presignedUrl, { method: q.method || 'PUT', body: req.file.buffer, headers: type ? { 'Content-Type': type } : {} });
+    out.put = { status: put.status, body: (await put.text()).slice(0, 300), headers: Object.fromEntries([...put.headers].filter(([k]) => !/cookie/i.test(k))) };
+    out.probe = await probe(p.fileUrl);
+    if (bool(q.run, false)) {
+      const payload = {
+        [INPUT_VARS.invoice]: { value: p.fileUrl, type: 'file' },
+        [INPUT_VARS.purchaseOrder]: { value: CANVAS_FILES.purchaseOrder, type: 'file' },
+        [INPUT_VARS.goodsReceipt]: { value: CANVAS_FILES.goodsReceipt, type: 'file' },
+      };
+      out.jobId = await opus.startJob('Upload diagnostic', payload);
     }
   } catch (e) { out.error = e.message; }
   res.json(out);
+}));
+
+// What did the invoice reader say for a diagnostic job?
+app.get('/api/admin/job-readers/:id', auth.requireRole('admin'), wrap(async (req, res) => {
+  const [st, audit] = await Promise.all([opus.getStatus(req.params.id), opus.getAudit(req.params.id).catch((e) => ({ error: e.message }))]);
+  const nodes = (audit && audit.audit && audit.audit.nodes_execution_data) || {};
+  res.json({
+    status: st && st.status,
+    readers: Object.fromEntries(Object.entries(nodes).filter(([k]) => /extractor/i.test(k)).map(([k, n]) => [k, {
+      status: n.execution_status, ms: n.execution_time, output: String(n.execution_output && n.execution_output[0] && n.execution_output[0].value).slice(0, 300),
+    }])),
+  });
 }));
 
 // ---------------------------------------------------------------------------

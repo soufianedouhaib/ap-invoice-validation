@@ -1,4 +1,5 @@
-// AP Invoice Validation console - Express backend.
+// Payables Hub (Finance Shared Services) - Express backend.
+// Runs the AP Invoice Validation workflow; that name stays server-side.
 //
 // The browser only ever talks to this server. This server is the only thing
 // that holds the Opus service key and the only thing that calls Opus.
@@ -54,10 +55,15 @@ const REVIEW_OUTPUT_FALLBACK = process.env.OPUS_REVIEW_OUTPUT_RESPONSE || 'workf
 
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || '';
 const ALLOW_SELF_REVIEW = String(process.env.ALLOW_SELF_REVIEW || '').toLowerCase() === 'true';
-// The Opus review task times out after 10 minutes. The old REVIEW_TIMEOUT_MINUTES
-// variable is ignored on purpose (a stale 1440 was left in Vercel); use
-// OPUS_REVIEW_TIMEOUT_MINUTES only if the Opus timeout itself changes.
-const REVIEW_TIMEOUT_MINUTES = Number(process.env.OPUS_REVIEW_TIMEOUT_MINUTES) || 10;
+// How long an approver has to answer a review, in minutes: 60, so a review
+// survives a coffee break. Keep the review task's own timeout in the workflow
+// at least this long, or the workflow stops waiting first. Older variables
+// (REVIEW_TIMEOUT_MINUTES, OPUS_REVIEW_TIMEOUT_MINUTES) are ignored on purpose:
+// stale values were left in Vercel. REVIEW_TIME_LIMIT_MINUTES overrides.
+const REVIEW_TIMEOUT_MINUTES = Number(process.env.REVIEW_TIME_LIMIT_MINUTES) || 60;
+// A pending review this far past its limit can no longer be answered and is
+// dropped from the queue.
+const REVIEW_GRACE_MINUTES = 2;
 const CALLBACK_VALUE_FORMAT = String(process.env.CALLBACK_VALUE_FORMAT || 'bare').toLowerCase();
 // Demo mode (on unless DEMO_MODE=false): the login page offers one-click
 // Demo Clerk / Demo Approver / Demo Admin accounts. Turn it off for real use.
@@ -68,7 +74,7 @@ const TERMINAL = ['COMPLETED', 'FAILED', 'CANCELLED', 'TIMED_OUT'];
 const FAILURE = ['FAILED', 'CANCELLED', 'TIMED_OUT'];
 
 // Where each role lands after signing in.
-const HOME = { clerk: '/submit.html', approver: '/reviews.html', admin: '/' };
+const HOME = { clerk: '/overview.html', approver: '/reviews.html', admin: '/' };
 const homeFor = (u) => (u && HOME[u.role]) || '/';
 
 function missingEnv() {
@@ -150,6 +156,7 @@ app.get('/api/config', auth.requireRole('admin'), wrap(async (req, res) => {
 app.get('/api/me', (req, res) => {
   if (!req.user) return res.json({ user: null });
   const out = { user: auth.publicUser(req.user), home: homeFor(req.user),
+    reviewTimeoutMinutes: REVIEW_TIMEOUT_MINUTES,
     support: { workflowId: opus.OPUS_WORKFLOW_ID, email: process.env.SUPPORT_EMAIL || 'support@opus.com' } };
   if (ORG_ID_ENV) out.support.orgId = ORG_ID_ENV;
   if (req.user.role === 'admin') out.setupWarnings = missingEnv();
@@ -160,7 +167,7 @@ app.post('/api/login', wrap(async (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: 'Enter your email and password.' });
   if (!auth.sessionSecretConfigured()) {
-    return res.status(503).json({ error: 'Sign-in is not configured yet: SESSION_SECRET is missing or too short.' });
+    return res.status(503).json({ error: 'Sign-in is not configured yet. Ask IT to finish the setup.' });
   }
 
   const key = `ap:login-fail:${auth.normEmail(email)}`;
@@ -188,19 +195,19 @@ app.get('/api/demo', wrap(async (req, res) => {
   const demoEmails = new Set(auth.DEMO_ACCOUNTS.map((a) => a.email));
   const demo = auth.DEMO_ACCOUNTS.map((a) => {
     const u = users.find((x) => x.email === a.email);
-    return { kind: 'demo', role: a.role, shownRole: (u && u.role) || a.role, name: (u && u.name) || a.name, active: !u || u.active !== false };
+    return { kind: 'quick', role: a.role, shownRole: (u && u.role) || a.role, name: (u && u.name) || a.name, email: a.email, active: !u || u.active !== false };
   }).filter((a) => a.active);
   const others = users
-    .filter((u) => !demoEmails.has(u.email) && u.active !== false)
+    .filter((u) => !demoEmails.has(u.email) && u.active !== false && !u.removed && !/@demo\.local$/i.test(u.email))
     .sort((a, b) => String(a.name).localeCompare(String(b.name)))
     .map((u) => ({ kind: 'user', role: u.role, name: u.name, email: u.email }));
   res.json({ enabled: true, accounts: demo.concat(others) });
 }));
 
 app.post('/api/demo-login', wrap(async (req, res) => {
-  if (!DEMO_MODE) return res.status(404).json({ error: 'Demo accounts are switched off.' });
+  if (!DEMO_MODE) return res.status(404).json({ error: 'Quick sign-in is switched off.' });
   if (!auth.sessionSecretConfigured()) {
-    return res.status(503).json({ error: 'Sign-in is not configured yet: set OPUS_SERVICE_KEY (or SESSION_SECRET) and redeploy.' });
+    return res.status(503).json({ error: 'Sign-in is not configured yet. Ask IT to finish the setup.' });
   }
   const user = await auth.ensureDemoUser((req.body || {}).role);
   auth.setSessionCookie(req, res, user);
@@ -264,13 +271,26 @@ app.delete('/api/users/:id', auth.requireRole('admin'), wrap(async (req, res) =>
 
 const SUBMIT_ROLES = ['clerk', 'admin'];
 
+// Which Opus API new runs use: 'v0' (Jobs, /job/...) or 'v1' (Case, /api/v1/case...).
+// Each case remembers the API it was started with, so old runs keep polling the
+// right endpoints. An admin can switch it at runtime.
+const API_MODE_KEY = 'ap:api-mode';
+let apiModeCache = null;
+async function apiMode() {
+  if (apiModeCache && Date.now() - apiModeCache.at < 15000) return apiModeCache.mode;
+  const stored = await store.get(API_MODE_KEY).catch(() => null);
+  const mode = stored === 'v0' || stored === 'v1' ? stored : (process.env.OPUS_API_VERSION === 'v0' ? 'v0' : 'v1');
+  apiModeCache = { at: Date.now(), mode };
+  return mode;
+}
+
 const UPLOAD_CFG_KEY = 'ap:upload-config';
 let uploadCfgCache = null;
 async function uploadConfig() {
-  if (uploadCfgCache && Date.now() - uploadCfgCache.at < 15000) return uploadCfgCache.cfg;
+  if (uploadCfgCache && Date.now() - uploadCfgCache.at < 15000) return { ...uploadCfgCache.cfg, api: await apiMode() };
   const cfg = (await store.get(UPLOAD_CFG_KEY).catch(() => null)) || {};
   uploadCfgCache = { at: Date.now(), cfg };
-  return cfg;
+  return { ...cfg, api: await apiMode() };
 }
 
 app.post('/api/upload-url', auth.requireRole(...SUBMIT_ROLES), wrap(async (req, res) => {
@@ -343,12 +363,45 @@ app.post('/api/admin/upload-config', auth.requireRole('admin'), wrap(async (req,
   res.json({ stored: cfg });
 }));
 
+app.get('/api/admin/api-mode', auth.requireRole('admin'), wrap(async (req, res) => {
+  res.json({ mode: await apiMode(), stored: (await store.get(API_MODE_KEY)) || null });
+}));
+app.post('/api/admin/api-mode', auth.requireRole('admin'), wrap(async (req, res) => {
+  const m = req.body && req.body.mode;
+  if (m !== 'v0' && m !== 'v1') return res.status(400).json({ error: 'mode must be v0 or v1' });
+  await store.set(API_MODE_KEY, m);
+  apiModeCache = null;
+  console.log(`[api-mode] ${req.user.email} set ${m}`);
+  res.json({ mode: m });
+}));
+
+// Three files in, one full run out: the real path a clerk takes, on a chosen API.
+app.post('/api/admin/full-test', auth.requireRole('admin'), upload.fields([{ name: 'invoice' }, { name: 'purchaseOrder' }, { name: 'goodsReceipt' }]), wrap(async (req, res) => {
+  const api = req.body && (req.body.api === 'v0' || req.body.api === 'v1') ? req.body.api : await apiMode();
+  const cfg = { ...(await store.get(UPLOAD_CFG_KEY).catch(() => null) || {}), api };
+  const out = { api, uploads: {} };
+  try {
+    const payload = {};
+    for (const [key, label] of [['invoice', 'Invoice'], ['purchaseOrder', 'Purchase Order'], ['goodsReceipt', 'Goods Receipt']]) {
+      const f = req.files && req.files[key] && req.files[key][0];
+      if (!f) return res.status(400).json({ error: 'missing file ' + key });
+      const p = await opus.presignUpload(f.originalname, cfg);
+      await opus.putToPresigned(p.presignedUrl, f.buffer, f.originalname, cfg);
+      out.uploads[key] = p.fileUrl;
+      payload[INPUT_VARS[key]] = { value: p.fileUrl, type: 'file', displayName: label };
+    }
+    out.jobId = await opus.startJob('Full diagnostic (' + api + ')', payload, api);
+  } catch (e) { out.error = e.message; }
+  res.json(out);
+}));
+
 app.post('/api/admin/upload-test', auth.requireRole('admin'), upload.single('file'), wrap(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'file required' });
   const q = req.body || {};
   const cfg = {
     scope: q.scope || 'workspace', dotExt: bool(q.dotExt, true), type: q.type || 'mime',
     withWorkspace: bool(q.withWorkspace, true), withWorkflow: bool(q.withWorkflow, true),
+    api: q.api === 'v0' || q.api === 'v1' ? q.api : await apiMode(),
   };
   const out = { cfg, bytes: req.file.size };
   try {
@@ -371,7 +424,7 @@ app.post('/api/admin/upload-test', auth.requireRole('admin'), upload.single('fil
         [INPUT_VARS.purchaseOrder]: { value: CANVAS_FILES.purchaseOrder, type: 'file' },
         [INPUT_VARS.goodsReceipt]: { value: CANVAS_FILES.goodsReceipt, type: 'file' },
       };
-      out.jobId = await opus.startJob('Upload diagnostic', payload);
+      out.jobId = await opus.startJob('Upload diagnostic', payload, cfg.api);
     }
   } catch (e) { out.error = e.message; }
   res.json(out);
@@ -379,7 +432,8 @@ app.post('/api/admin/upload-test', auth.requireRole('admin'), upload.single('fil
 
 // What did the invoice reader say for a diagnostic job?
 app.get('/api/admin/job-readers/:id', auth.requireRole('admin'), wrap(async (req, res) => {
-  const [st, audit] = await Promise.all([opus.getStatus(req.params.id), opus.getAudit(req.params.id).catch((e) => ({ error: e.message }))]);
+  const api = req.query.api || undefined;
+  const [st, audit] = await Promise.all([opus.getStatus(req.params.id, api), opus.getAudit(req.params.id, api).catch((e) => ({ error: e.message }))]);
   const nodes = (audit && audit.audit && audit.audit.nodes_execution_data) || {};
   res.json({
     status: st && st.status,
@@ -413,10 +467,27 @@ async function patchCase(id, changes) {
   return next;
 }
 
-async function allCases() {
+async function allCasesRaw() {
   const ids = await store.smembers(CASES_SET);
   const cases = await Promise.all(ids.map((id) => getCase(id)));
   return cases.filter(Boolean).sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
+}
+
+// Runs made while setting the system up: upload diagnostics, client test
+// documents, files uploaded under storage names. Never shown anywhere; the
+// admin clean-up deletes them for good.
+const TEST_CASE_RE = /\bDIAG|diagnostic|MAFR|al[\s-]*maya|media_[0-9a-f]{8}-[0-9a-f]{4}/i;
+function isTestCase(c) {
+  if (!c) return false;
+  const files = c.files || {};
+  const hay = [c.reference, c.note, c.title, ...Object.values(files).map((f) => f && f.name),
+    JSON.stringify(c.summary || {}), JSON.stringify(c.prelim || {})].join(' ');
+  if (TEST_CASE_RE.test(hay)) return true;
+  try { return /MAFR|al[\s-]*maya/i.test(JSON.stringify(c.outputs || {})); } catch (e) { return false; }
+}
+
+async function allCases() {
+  return (await allCasesRaw()).filter((c) => !isTestCase(c));
 }
 
 function canSeeCase(user, c) {
@@ -485,6 +556,8 @@ function prelimFrom(obj) {
   const vendorId = findKey(o, ['vendor_id']);
   const licence = findKey(o, ['trade_license', 'trade_licence', 'license_number']);
   const vs = findKey(o, ['vendor_status']);
+  const po = findKey(o, ['po_number', 'po_number_referenced', 'purchase_order_number']);
+  const gr = findKey(o, ['gr_number', 'grn_number', 'goods_receipt_number']);
   const rec = o.vendor && typeof o.vendor === 'object' ? o.vendor : null;
   const status = vs && typeof vs === 'object' ? vs.actual || vs.value || null : typeof vs === 'string' ? vs : rec && typeof rec.status === 'string' ? rec.status : null;
   return {
@@ -495,6 +568,8 @@ function prelimFrom(obj) {
     invoiceNumber: invoiceNumber !== undefined && typeof invoiceNumber !== 'object' ? String(invoiceNumber) : null,
     invoiceTotal: typeof total === 'number' && total > 0 ? total : null,
     currency: typeof ccy === 'string' ? ccy.toUpperCase() : null,
+    poNumber: typeof po === 'string' || typeof po === 'number' ? realValue(String(po)) : null,
+    grNumber: typeof gr === 'string' || typeof gr === 'number' ? realValue(String(gr)) : null,
   };
 }
 
@@ -525,7 +600,9 @@ const fmtMoney = (n, ccy) => `${Number(n).toLocaleString('en-US', { minimumFract
 function rowSummary(c) {
   const s = { ...(c.summary || {}) };
   const p = c.prelim || {};
-  for (const k of ['vendor', 'invoiceNumber', 'currency', 'invoiceTotal', 'vendorId']) if (s[k] === null || s[k] === undefined) s[k] = p[k] ?? null;
+  for (const k of ['vendor', 'invoiceNumber', 'currency', 'invoiceTotal', 'vendorId']) if (s[k] === null || s[k] === undefined || (typeof s[k] === 'string' && !realValue(s[k]))) s[k] = p[k] ?? null;
+  s.vendor = realValue(s.vendor);
+  s.invoiceNumber = realValue(s.invoiceNumber);
   const decision = String(s.outcome || '').toLowerCase();
   if (c.status === 'COMPLETED' && (s.amount === null || s.amount === undefined) && HELD_RE.test(decision) && s.invoiceTotal) {
     s.displayAmount = fmtMoney(s.invoiceTotal, s.currency);
@@ -543,14 +620,14 @@ function rowSummary(c) {
 // and for a finished case the Opus audit does (read once, then kept).
 async function ensurePrelim(c) {
   let prelim = c.prelim || null;
-  const complete = (x) => x && x.invoiceTotal && x.vendorId && x.vendorStatus;
+  const complete = (x) => x && x.invoiceTotal && x.vendorId && x.vendorStatus && x.poNumber;
   if (complete(prelim)) return c;
   if (c.review && c.review.dispatchId && !(prelim && prelim.briefChecked)) {
     const d = await store.get(DISPATCH_KEY(c.review.dispatchId)).catch(() => null);
     prelim = { ...mergePrelim(prelim, d ? prelimFrom(reviewInputsFor(d).exceptionBrief) : null), briefChecked: true };
   }
   if (!complete(prelim) && TERMINAL.includes(c.status) && !(prelim && prelim.auditChecked) && opus.OPUS_SERVICE_KEY) {
-    const audit = await opus.getAudit(c.jobId).catch(() => null);
+    const audit = await opus.getAudit(c.jobId, c.api).catch(() => null);
     prelim = { ...mergePrelim(prelim, prelimFromAudit(audit)), auditChecked: true };
   }
   if (!prelim || JSON.stringify(prelim) === JSON.stringify(c.prelim || null)) return c;
@@ -596,13 +673,23 @@ function enrichOutputs(outputs, c) {
   return out;
 }
 
+// Who someone is on screen: name and email only, under their current name.
+function person(p) {
+  const q = auth.currentPerson(p);
+  return q ? { name: q.name, email: q.email } : null;
+}
+
+// Extractor placeholders ("Not documented", "N/A") are not vendor names.
+const PLACEHOLDER_RE = /^\s*(not\s+(documented|found|read|available|provided|specified|stated)|n\/?a|none|null|unknown|-+|—)\s*$/i;
+const realValue = (v) => (typeof v === 'string' && v.trim() && !PLACEHOLDER_RE.test(v) ? v.trim() : null);
+
 // The one projection from a stored case to what every screen shows.
 function toRow(c) {
   return {
     jobId: c.jobId,
     reference: c.reference || null,
     note: c.note || null,
-    submittedBy: c.submittedBy ? { name: c.submittedBy.name, email: c.submittedBy.email } : null,
+    submittedBy: c.submittedBy ? person(c.submittedBy) : null,
     submittedAt: c.submittedAt,
     completedAt: c.completedAt || null,
     status: displayStatus(c),
@@ -618,7 +705,7 @@ function toRow(c) {
           status: c.review.status,
           dispatchId: c.review.dispatchId,
           receivedAt: c.review.receivedAt,
-          reviewedBy: c.review.reviewedBy || null,
+          reviewedBy: c.review.reviewedBy ? person(c.review.reviewedBy) : null,
           reviewedAt: c.review.reviewedAt || null,
           response: c.review.response || null,
         }
@@ -703,13 +790,13 @@ async function refreshCase(c) {
   // raw Opus details were captured (so its real error can still be looked up).
   if (TERMINAL.includes(c.status) && (c.status === 'COMPLETED' ? c.outputs : c.failure && c.failure.raw)) return { c, progress: null };
 
-  const statusResp = await opus.getStatus(c.jobId);
+  const statusResp = await opus.getStatus(c.jobId, c.api);
   const status = String((statusResp && statusResp.status) || 'UNKNOWN').toUpperCase();
   const changes = { status, lastCheckedAt: new Date().toISOString() };
   let progress = null;
 
   if (status === 'COMPLETED') {
-    const results = await opus.getResults(c.jobId);
+    const results = await opus.getResults(c.jobId, c.api);
     const payload = (results && (results.jobResultsPayloadSchema || results.results)) || {};
     const outputs = {};
     for (const [key, varName] of Object.entries(OUTPUT_VARS)) {
@@ -722,13 +809,13 @@ async function refreshCase(c) {
   } else if (FAILURE.includes(status)) {
     let audit = null;
     try {
-      audit = await opus.getAudit(c.jobId);
+      audit = await opus.getAudit(c.jobId, c.api);
     } catch (e) {
       console.error('audit fetch error', e.message);
     }
     let jobDetail = null;
     try {
-      jobDetail = await opus.getJob(c.jobId);
+      jobDetail = await opus.getJob(c.jobId, c.api);
     } catch (e) {
       console.error('job detail fetch error', e.message);
     }
@@ -746,7 +833,7 @@ async function refreshCase(c) {
     }
   } else {
     try {
-      const audit = await opus.getAudit(c.jobId);
+      const audit = await opus.getAudit(c.jobId, c.api);
       progress = {
         nbNodes: audit.nb_nodes ?? null,
         nbExecutedNodes: audit.nb_executed_nodes ?? null,
@@ -789,15 +876,15 @@ function failureCause(raw) {
         (n.execution_output || []).every((o) => o.value === null || o.value === undefined))) {
       return {
         code: 'READERS_FAILED',
-        message: 'The document readers in Opus (Invoice, PO and GR Extractors) failed on the uploaded PDFs without returning anything, so the run stopped at the first step. ' +
-          'Upload the files again and resubmit; if it keeps happening, contact Opus support from this page.',
+        message: 'The documents could not be read (invoice, PO and goods receipt), so the match stopped at the first step. ' +
+          'Upload the files again and resubmit; if it keeps happening, use Report a problem on this page.',
       };
     }
     if (blocked) {
       return {
         code: 'FILE_ACCESS',
-        message: 'Opus could not open the uploaded PDFs (403 Forbidden), so nothing was extracted and the 3-way match had no data. ' +
-          'Upload the three files again and resubmit; this version of the app uploads them through its server, which avoids this.',
+        message: 'The uploaded PDFs could not be opened for reading, so nothing was extracted and the 3-way match had no data. ' +
+          'Upload the three files again and resubmit.',
       };
     }
   } catch (e) { /* fall through */ }
@@ -851,10 +938,15 @@ app.post('/api/cases', auth.requireRole(...SUBMIT_ROLES), wrap(async (req, res) 
   };
 
   const title = `AP Invoice Validation${ref ? ' - ' + ref : ''}`;
-  const jobId = await opus.startJob(title, payload);
+  const api = await apiMode();
+  payload[INPUT_VARS.invoice].displayName = 'Invoice';
+  payload[INPUT_VARS.purchaseOrder].displayName = 'Purchase Order';
+  payload[INPUT_VARS.goodsReceipt].displayName = 'Goods Receipt';
+  const jobId = await opus.startJob(title, payload, api);
 
   const c = {
     jobId,
+    api,
     reference: ref,
     note: String(note || '').trim().slice(0, 500) || null,
     submittedBy: { id: req.user.id, name: req.user.name, email: req.user.email },
@@ -902,7 +994,7 @@ app.get('/api/cases/:id', auth.requireUser, wrap(async (req, res) => {
     progress = r.progress;
   } catch (err) {
     console.error('refresh error', err.message);
-    refreshError = 'Could not reach Opus just now. Showing the last known state.';
+    refreshError = 'The matching service could not be reached just now. Showing the last known state.';
   }
 
   res.json({
@@ -1042,7 +1134,7 @@ async function matchDispatch(record) {
   const newestFirst = candidates.slice().sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
   for (const c of newestFirst.slice(0, 8)) {
     try {
-      const audit = await opus.getAudit(c.jobId);
+      const audit = await opus.getAudit(c.jobId, c.api);
       const step = reviewStepFromAudit(audit);
       const where = JSON.stringify([audit.running_node, audit.next_node_to_execute]);
       if (step || where.includes(HUMAN_NODE_ID)) atReview.push({ c, startedAt: reviewStartedAt(audit) });
@@ -1122,6 +1214,9 @@ function reviewInputsFor(d) {
 }
 
 function dispatchRow(d, c) {
+  // Not linked to a case yet: the exception brief still names the vendor,
+  // invoice and amount, so the approver can see what it is.
+  const p = c ? null : prelimFrom(reviewInputsFor(d).exceptionBrief) || {};
   return {
     id: d.id,
     status: d.status,
@@ -1130,38 +1225,59 @@ function dispatchRow(d, c) {
     timeoutMinutes: REVIEW_TIMEOUT_MINUTES,
     case: c ? toRow(c) : null,
     linked: Boolean(c),
+    details: p ? {
+      vendor: realValue(p.vendor), invoiceNumber: realValue(p.invoiceNumber),
+      amount: p.invoiceTotal ? fmtMoney(p.invoiceTotal, p.currency) : null,
+    } : null,
   };
+}
+
+const pastLimit = (d) => Date.now() - new Date(d.receivedAt).getTime() > (REVIEW_TIMEOUT_MINUTES + REVIEW_GRACE_MINUTES) * 60000;
+
+// Reviews that can still be answered. One past its time limit is expired
+// (and its case marked so); one never linked to a case and with nothing to
+// show (no vendor, no invoice) is not something an approver can act on.
+async function openReviews() {
+  const ids = await store.smembers(PENDING_SET);
+  const linked = [];
+  const unmatched = [];
+  for (const id of ids) {
+    const d = await store.get(DISPATCH_KEY(id));
+    if (!d || d.status !== 'pending') { await store.srem(PENDING_SET, id); continue; }
+    if (!d.jobId) await matchDispatch(d).catch(() => null);
+    const c = d.jobId ? await getCase(d.jobId) : null;
+    if (pastLimit(d)) {
+      await expireDispatch(d.id);
+      if (c && c.review && c.review.status === 'pending') await patchCase(c.jobId, { review: { ...c.review, status: 'expired' } });
+      continue;
+    }
+    if (c && isTestCase(c)) continue;
+    const row = dispatchRow(d, c);
+    if (c) linked.push(row);
+    else if (row.details && (row.details.vendor || row.details.invoiceNumber)) unmatched.push(row);
+  }
+  const oldest = (a, b) => new Date(a.receivedAt) - new Date(b.receivedAt);
+  return { linked: linked.sort(oldest), unmatched: unmatched.sort(oldest) };
 }
 
 const REVIEW_ROLES = ['approver', 'admin'];
 
 app.get('/api/reviews', auth.requireRole(...REVIEW_ROLES), wrap(async (req, res) => {
-  const ids = await store.smembers(PENDING_SET);
-  const pending = [];
-  for (const id of ids) {
-    const d = await store.get(DISPATCH_KEY(id));
-    if (!d || d.status !== 'pending') {
-      await store.srem(PENDING_SET, id);
-      continue;
-    }
-    if (!d.jobId) await matchDispatch(d).catch(() => null);
-    const c = d.jobId ? await getCase(d.jobId) : null;
-    pending.push(dispatchRow(d, c));
-  }
-  pending.sort((a, b) => new Date(a.receivedAt) - new Date(b.receivedAt));
+  const open = await openReviews();
+  const pending = open.linked;
 
   const completed = (await allCases())
-    .filter((c) => c.review && c.review.status !== 'pending')
+    .filter((c) => c.review && c.review.status !== 'pending' && !isTestCase(c))
     .sort((a, b) => new Date(b.review.reviewedAt || b.review.receivedAt) - new Date(a.review.reviewedAt || a.review.receivedAt))
     .slice(0, 50)
     .map(toRow);
 
   const pendingJobIds = new Set(pending.map((p) => p.case && p.case.jobId).filter(Boolean));
   const notDelivered = (await allCases())
-    .filter((c) => !TERMINAL.includes(c.status) && c.atReviewStep && !pendingJobIds.has(c.jobId) && !(c.review && c.review.status === 'pending'))
+    .filter((c) => !TERMINAL.includes(c.status) && c.atReviewStep && !pendingJobIds.has(c.jobId) && !(c.review && c.review.status === 'pending') && !isTestCase(c))
     .map(toRow);
 
-  res.json({ pending, completed, notDelivered });
+  res.json({ pending, unmatched: open.unmatched, completed, notDelivered: req.user.role === 'admin' ? notDelivered : [] });
 }));
 
 app.get('/api/reviews/:id', auth.requireRole(...REVIEW_ROLES), wrap(async (req, res) => {
@@ -1233,10 +1349,10 @@ app.post('/api/reviews/:id', auth.requireRole(...REVIEW_ROLES), wrap(async (req,
         await store.set(DISPATCH_KEY(d.id), d);
         await store.srem(PENDING_SET, d.id);
         if (c) await patchCase(c.jobId, { review: { ...(c.review || {}), status: 'expired' } });
-        return res.status(409).json({ error: 'Opus no longer accepts an answer for this review (it has expired or was already answered). The case will need to be resubmitted.' });
+        return res.status(409).json({ error: 'This review can no longer be answered (it has expired or was already answered). The invoice pack will need to be submitted again.' });
       }
       await store.del(lockKey);
-      return res.status(502).json({ error: `Opus rejected the decision (${cbRes.status}). Nothing was recorded; try again.` });
+      return res.status(502).json({ error: `The decision was not accepted (${cbRes.status}). Nothing was recorded; try again.` });
     }
   } catch (err) {
     await store.del(lockKey);
@@ -1331,7 +1447,7 @@ app.get('/api/cases/:id/support', auth.requireUser, wrap(async (req, res) => {
   let job = c.opusJob || null;
   if (!job && opus.OPUS_SERVICE_KEY) {
     try {
-      const d = await opus.getJob(c.jobId);
+      const d = await opus.getJob(c.jobId, c.api);
       job = {
         referenceId: d.referenceId || null,
         versionLabel: d.workflowVersionLabel || null,
@@ -1371,8 +1487,8 @@ app.get('/api/cases/:id/support', auth.requireUser, wrap(async (req, res) => {
   let reason = null;
   if (cause) reason = cause.message;
   else if (failed && failedNodes.length) reason = `The run stopped at "${failedNodes[0]}".`;
-  else if (failed) reason = 'The run did not finish; Opus did not name a failed step.';
-  if (c.review && c.review.status === 'expired') reason = 'The approver review was not answered before the workflow time limit. ' + (reason || '');
+  else if (failed) reason = 'The run did not finish and no failed step was named.';
+  if (c.review && c.review.status === 'expired') reason = 'The approver review was not answered before the time limit. ' + (reason || '');
 
   res.json({
     workflowId: opus.OPUS_WORKFLOW_ID,
@@ -1528,15 +1644,18 @@ app.get('/api/report', auth.requireUser, wrap(async (req, res) => {
         if (f.held > 0) row.heldCount++;
       }
     };
-    add(vendors, (f.s.vendor || 'Vendor not read').toLowerCase(), f.s.vendor || 'Vendor not read');
-    if (c.submittedBy) add(people, c.submittedBy.email || c.submittedBy.name, c.submittedBy.name || c.submittedBy.email);
+    // Only invoices whose vendor was actually read count towards a vendor.
+    const vendorName = realValue(f.s.vendor);
+    if (vendorName) add(vendors, vendorName.toLowerCase(), vendorName);
+    if (c.submittedBy) { const sb = person(c.submittedBy); add(people, sb.email || sb.name, sb.name || sb.email); }
 
     if (c.review && c.review.status === 'submitted') {
       decided++;
       if (c.review.receivedAt && c.review.reviewedAt) { turnSum += new Date(c.review.reviewedAt) - new Date(c.review.receivedAt); turnRuns++; }
     }
     const list = await exceptionsFor(c);
-    const who = c.review && c.review.reviewedBy ? c.review.reviewedBy.name || c.review.reviewedBy.email : null;
+    const rb = c.review && c.review.reviewedBy ? person(c.review.reviewedBy) : null;
+    const who = rb ? rb.name || rb.email : null;
     for (const e of list) {
       const row = exc.get(e.type) || { label: e.type, approved: 0, disputed: 0, pending: 0, total: 0 };
       row.total++;
@@ -1601,6 +1720,75 @@ app.get('/api/report', auth.requireUser, wrap(async (req, res) => {
   });
 }));
 
+// ---------------------------------------------------------------------------
+// Read-only neighbouring areas (vendors, purchase orders, payment run). The
+// source records live in procurement and treasury; these views show what
+// this hub has seen on the invoices it matched.
+// ---------------------------------------------------------------------------
+
+function fromOutputs(c, names) {
+  for (const k of ['paymentObject', 'auditTrail']) {
+    const v = findKey(parseMaybeJson(c.outputs && c.outputs[k]), names);
+    if (v !== undefined && typeof v !== 'object') return realValue(String(v));
+  }
+  return null;
+}
+
+function matchState(c, f) {
+  if (f.unfinished) return 'Did not finish';
+  if (f.status === 'WAITING_REVIEW') return 'Awaiting approval';
+  if (!f.completed) return 'Matching';
+  if (f.held > 0 && f.approved > 0) return 'Part held';
+  if (f.held > 0) return 'Held';
+  return f.reviewed ? 'Approved after review' : 'Matched';
+}
+
+app.get('/api/ledger', auth.requireUser, wrap(async (req, res) => {
+  const cases = (await allCases()).filter((c) => canSeeCase(req.user, c));
+  const vendors = new Map();
+  const orders = [];
+  const payments = [];
+  for (const c of cases) {
+    const f = caseFigures(c);
+    const p = c.prelim || {};
+    const vendor = realValue(f.s.vendor) || realValue(p.vendor);
+    const invoiceNumber = realValue(f.s.invoiceNumber) || realValue(p.invoiceNumber) || c.reference || null;
+    const ccy = f.currency || p.currency || null;
+    if (vendor) {
+      const key = vendor.toLowerCase();
+      const v = vendors.get(key) || { name: vendor, vendorId: null, status: null, invoices: 0, approved: 0, held: 0, currency: ccy, lastInvoiceAt: null };
+      v.vendorId = v.vendorId || p.vendorId || fromOutputs(c, ['vendor_id']);
+      v.status = v.status || p.vendorStatus || null;
+      v.invoices++;
+      v.approved += f.approved; v.held += f.held;
+      if (!v.lastInvoiceAt || c.submittedAt > v.lastInvoiceAt) v.lastInvoiceAt = c.submittedAt;
+      vendors.set(key, v);
+    }
+    orders.push({
+      caseId: c.jobId,
+      poNumber: p.poNumber || fromOutputs(c, ['po_number', 'po_number_referenced']),
+      grNumber: p.grNumber || fromOutputs(c, ['gr_number', 'grn_number']),
+      poFile: c.files && c.files.purchaseOrder ? c.files.purchaseOrder.name : null,
+      grFile: c.files && c.files.goodsReceipt ? c.files.goodsReceipt.name : null,
+      vendor, invoiceNumber, state: matchState(c, f), submittedAt: c.submittedAt,
+    });
+    if (f.completed && f.approved > 0) {
+      const terms = fromOutputs(c, ['payment_terms', 'terms']);
+      const days = terms && /(\d{1,3})/.test(terms) ? Number(terms.match(/(\d{1,3})/)[1]) : null;
+      const approvedAt = (c.review && c.review.reviewedAt) || c.completedAt || c.submittedAt;
+      payments.push({
+        caseId: c.jobId, vendor, invoiceNumber, amount: f.approved, currency: ccy, terms,
+        approvedAt, dueAt: days !== null ? new Date(new Date(approvedAt).getTime() + days * DAY).toISOString() : null,
+      });
+    }
+  }
+  res.json({
+    vendors: [...vendors.values()].sort((a, b) => b.approved + b.held - (a.approved + a.held) || b.invoices - a.invoices),
+    orders,
+    payments: payments.sort((a, b) => String(a.dueAt || '9').localeCompare(String(b.dueAt || '9'))),
+  });
+}));
+
 function csvCell(v) {
   const s = v === null || v === undefined ? '' : String(v);
   // Guard against formula injection when the file is opened in a spreadsheet.
@@ -1611,26 +1799,82 @@ function csvCell(v) {
 app.get('/api/export.csv', auth.requireRole('approver', 'admin'), wrap(async (req, res) => {
   const range = rangeFrom(req.query);
   const cases = (await allCases()).filter((c) => inRange(c, range));
-  const head = ['Job id', 'Reference', 'Status', 'Vendor', 'Invoice number', 'Payable amount', 'Held amount', 'Currency', 'Decision',
+  const head = ['Case id', 'Reference', 'Status', 'Vendor', 'Invoice number', 'Payable amount', 'Held amount', 'Currency', 'Decision',
     'Submitted by', 'Submitted at', 'Finished at', 'Run time (s)', 'Reviewed by', 'Reviewed at', 'Approver decision'];
   const lines = [head.map(csvCell).join(',')];
   for (const c of cases) {
     const f = caseFigures(c);
     lines.push([c.jobId, c.reference, f.status, f.s.vendor, f.s.invoiceNumber, f.completed ? f.approved : '', f.completed ? f.held : '',
-      f.currency, f.s.outcome, c.submittedBy && c.submittedBy.name, c.submittedAt, c.completedAt,
-      f.runtimeMs !== null ? Math.round(f.runtimeMs / 1000) : '', c.review && c.review.reviewedBy && c.review.reviewedBy.name,
+      f.currency, f.s.outcome, c.submittedBy && person(c.submittedBy).name, c.submittedAt, c.completedAt,
+      f.runtimeMs !== null ? Math.round(f.runtimeMs / 1000) : '', c.review && c.review.reviewedBy && person(c.review.reviewedBy).name,
       c.review && c.review.reviewedAt, c.review && c.review.response].map(csvCell).join(','));
   }
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="ap-invoice-cases-${ymd(Date.now())}.csv"`);
+  res.setHeader('Content-Disposition', `attachment; filename="payables-invoices-${ymd(Date.now())}.csv"`);
   res.send('﻿' + lines.join('\r\n'));
+}));
+
+// Admin clean-up of the set-up period: test runs, runs that never finished,
+// reviews that expired unanswered, and review requests that never matched a
+// case. GET previews, POST deletes. Old quick-access names on the cases that
+// stay are rewritten to the current ones.
+async function cleanupPlan() {
+  const cases = await allCasesRaw();
+  const drop = new Map();
+  for (const c of cases) {
+    if (isTestCase(c)) drop.set(c.jobId, 'test');
+    else if (FAILURE.includes(c.status)) drop.set(c.jobId, 'unfinished');
+    else if (c.review && c.review.status === 'expired') drop.set(c.jobId, 'expired');
+  }
+  const pendingIds = await store.smembers(PENDING_SET);
+  const dispatches = [];
+  for (const id of pendingIds) {
+    const d = await store.get(DISPATCH_KEY(id));
+    if (!d) { dispatches.push(id); continue; }
+    if (d.status !== 'pending' || drop.has(d.jobId) || pastLimit(d)) dispatches.push(id);
+  }
+  const count = (k) => [...drop.values()].filter((v) => v === k).length;
+  return { cases, drop, dispatches, summary: { test: count('test'), unfinished: count('unfinished'), expired: count('expired'), reviews: dispatches.length, kept: cases.length - drop.size } };
+}
+
+app.get('/api/admin/cleanup', auth.requireRole('admin'), wrap(async (req, res) => {
+  res.json((await cleanupPlan()).summary);
+}));
+
+app.post('/api/admin/cleanup', auth.requireRole('admin'), wrap(async (req, res) => {
+  const plan = await cleanupPlan();
+  for (const c of plan.cases) {
+    if (plan.drop.has(c.jobId)) {
+      if (c.review && c.review.dispatchId) {
+        await store.del(DISPATCH_KEY(c.review.dispatchId));
+        await store.srem(PENDING_SET, c.review.dispatchId);
+      }
+      await store.del(CASE_KEY(c.jobId));
+      await store.srem(CASES_SET, c.jobId);
+      continue;
+    }
+    const sb = c.submittedBy && auth.currentPerson(c.submittedBy);
+    const rb = c.review && c.review.reviewedBy && auth.currentPerson(c.review.reviewedBy);
+    if ((sb && sb.email !== c.submittedBy.email) || (rb && rb.email !== c.review.reviewedBy.email)) {
+      await patchCase(c.jobId, {
+        submittedBy: sb ? { ...c.submittedBy, name: sb.name, email: sb.email } : c.submittedBy,
+        review: rb ? { ...c.review, reviewedBy: { ...c.review.reviewedBy, name: rb.name, email: rb.email } } : c.review,
+      });
+    }
+  }
+  for (const id of plan.dispatches) {
+    await store.del(DISPATCH_KEY(id));
+    await store.srem(PENDING_SET, id);
+  }
+  console.log(`[cleanup] ${req.user.email}: ${JSON.stringify(plan.summary)}`);
+  res.json(plan.summary);
 }));
 
 // Admin clean-up: keep the three newest cases, delete the rest everywhere
 // (case list, report, export) together with their stored reviews.
 const KEEP_ON_CLEAR = 3;
 app.post('/api/cases/clear', auth.requireRole('admin'), wrap(async (req, res) => {
-  const cases = await allCases(); // newest first
+  const cases = await allCasesRaw(); // newest first
   const drop = cases.slice(KEEP_ON_CLEAR);
   for (const c of drop) {
     if (c.review && c.review.dispatchId) {
@@ -1655,14 +1899,15 @@ app.use((err, req, res, next) => {
   if (err && err.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ error: 'Each file must be 10 MB or smaller.' });
   const status = err.status && err.status >= 400 && err.status < 600 && !err.opus ? err.status : 500;
   if (status >= 500) console.error('request error', err);
-  const message = err.opus ? 'Opus returned an error. Check Settings, then try again.' : err.message || 'Something went wrong.';
-  res.status(status).json({ error: message, detail: err.opus ? err.message : undefined });
+  const message = err.opus ? 'The matching service returned an error. Try again; if it keeps happening, use Report a problem.' : err.message || 'Something went wrong.';
+  const isAdmin = req.user && req.user.role === 'admin';
+  res.status(status).json({ error: message, detail: err.opus && isAdmin ? err.message : undefined });
 });
 
 const PORT = process.env.PORT || 3000;
 if (require.main === module) {
   app.listen(PORT, () => {
-    console.log(`AP Invoice console on http://localhost:${PORT}  (storage: ${store.kind})`);
+    console.log(`Payables Hub on http://localhost:${PORT}  (storage: ${store.kind})`);
     const missing = missingEnv();
     if (missing.length) console.warn('Missing configuration:', missing.join(', '));
   });

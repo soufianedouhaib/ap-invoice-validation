@@ -107,6 +107,32 @@ app.post(['/api/opus-webhook/human-review', '/api/opus-webhook/human-review/:key
 
 app.use('/api', auth.loadUser, auth.requireAjaxHeader);
 
+// ---------------------------------------------------------------------------
+// Vendor display names. The vendor master inside the workflow still carries a
+// few real brand names; the hub shows an invented name instead, everywhere it
+// sends data to a browser (case records, payment object, audit trail, review
+// brief, reports, CSV). VENDOR_DISPLAY_NAMES (JSON, {"Real name": "Shown name"})
+// adds to or overrides the built-in list.
+// ---------------------------------------------------------------------------
+const VENDOR_ALIASES = (() => {
+  const base = { 'Magic Planet Equipment Ltd': 'Leisure Equipment Ltd', 'Magic Planet': 'Leisure Equipment' };
+  try { Object.assign(base, JSON.parse(process.env.VENDOR_DISPLAY_NAMES || '{}')); } catch (e) { console.error('VENDOR_DISPLAY_NAMES is not valid JSON'); }
+  return Object.entries(base).filter(([from, to]) => from && to && from !== to)
+    .map(([from, to]) => [new RegExp(from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+'), 'gi'), to]);
+})();
+function displayNames(text) {
+  if (typeof text !== 'string' || !VENDOR_ALIASES.length) return text;
+  return VENDOR_ALIASES.reduce((t, [re, to]) => t.replace(re, to), text);
+}
+app.use('/api', (req, res, next) => {
+  const json = res.json.bind(res);
+  res.json = (body) => {
+    if (!VENDOR_ALIASES.length || body === undefined) return json(body);
+    try { return json(JSON.parse(displayNames(JSON.stringify(body)))); } catch (e) { return json(body); }
+  };
+  next();
+});
+
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 // ---------------------------------------------------------------------------
@@ -488,6 +514,25 @@ function isTestCase(c) {
 
 async function allCases() {
   return (await allCasesRaw()).filter((c) => !isTestCase(c));
+}
+
+// The same vendor invoice submitted twice. The first submission that did not
+// fail is the original; later ones are duplicates (kept, flagged, and left
+// out of the payment run). Keyed on vendor + invoice number as read.
+function invoiceKey(c) {
+  const s = rowSummary(c);
+  const v = realValue(s.vendor), n = realValue(s.invoiceNumber);
+  return v && n ? displayNames(v).toLowerCase().replace(/\s+/g, ' ') + '|' + n.toLowerCase() : null;
+}
+function duplicateMap(cases) {
+  const first = new Map(), dup = new Map();
+  for (const c of cases.slice().sort((a, b) => new Date(a.submittedAt) - new Date(b.submittedAt))) {
+    if (FAILURE.includes(c.status)) continue;
+    const k = invoiceKey(c);
+    if (!k) continue;
+    if (first.has(k)) dup.set(c.jobId, first.get(k)); else first.set(k, c);
+  }
+  return dup; // jobId -> original case
 }
 
 function canSeeCase(user, c) {
@@ -977,7 +1022,27 @@ app.get('/api/cases', auth.requireUser, wrap(async (req, res) => {
     const byId = new Map(refreshed.map((c) => [c.jobId, c]));
     cases = cases.map((c) => byId.get(c.jobId) || c);
   }
-  res.json({ cases: cases.map(toRow) });
+  const dups = duplicateMap(cases);
+  res.json({ cases: cases.map((c) => {
+    const row = toRow(c);
+    const o = dups.get(c.jobId);
+    if (o) row.duplicateOf = { jobId: o.jobId, reference: o.reference || rowSummary(o).invoiceNumber || null };
+    return row;
+  }) });
+}));
+
+// Admin: delete one case (e.g. an invoice submitted twice), with its review.
+app.delete('/api/cases/:id', auth.requireRole('admin'), wrap(async (req, res) => {
+  const c = await getCase(req.params.id);
+  if (!c) return res.status(404).json({ error: 'Case not found.' });
+  if (c.review && c.review.dispatchId) {
+    await store.del(DISPATCH_KEY(c.review.dispatchId));
+    await store.srem(PENDING_SET, c.review.dispatchId);
+  }
+  await store.del(CASE_KEY(c.jobId));
+  await store.srem(CASES_SET, c.jobId);
+  console.log(`[cases] ${req.user.email} deleted case ${c.jobId}`);
+  res.json({ ok: true });
 }));
 
 app.get('/api/cases/:id', auth.requireUser, wrap(async (req, res) => {
@@ -1608,6 +1673,9 @@ app.get('/api/report', auth.requireUser, wrap(async (req, res) => {
     cases = cases.map((c) => byId.get(c.jobId) || c);
   }
   cases = await Promise.all(cases.map((c) => (c.status === 'COMPLETED' ? ensurePrelim(c).catch(() => c) : c)));
+  // A second submission of the same invoice is not counted twice.
+  const dupIds = duplicateMap(cases);
+  cases = cases.filter((c) => !dupIds.has(c.jobId));
   const figs = cases.map((c) => ({ c, f: caseFigures(c) }));
 
   // One currency for the money figures: the most common among finished runs.
@@ -1745,8 +1813,10 @@ function matchState(c, f) {
 
 app.get('/api/ledger', auth.requireUser, wrap(async (req, res) => {
   const cases = (await allCases()).filter((c) => canSeeCase(req.user, c));
+  const dups = duplicateMap(cases);
   const vendors = new Map();
   const orders = [];
+  const byPo = new Map();
   const payments = [];
   for (const c of cases) {
     const f = caseFigures(c);
@@ -1754,6 +1824,7 @@ app.get('/api/ledger', auth.requireUser, wrap(async (req, res) => {
     const vendor = realValue(f.s.vendor) || realValue(p.vendor);
     const invoiceNumber = realValue(f.s.invoiceNumber) || realValue(p.invoiceNumber) || c.reference || null;
     const ccy = f.currency || p.currency || null;
+    if (dups.has(c.jobId)) continue; // a duplicate submission is not a second invoice
     if (vendor) {
       const key = vendor.toLowerCase();
       const v = vendors.get(key) || { name: vendor, vendorId: null, status: null, invoices: 0, approved: 0, held: 0, currency: ccy, lastInvoiceAt: null };
@@ -1764,14 +1835,16 @@ app.get('/api/ledger', auth.requireUser, wrap(async (req, res) => {
       if (!v.lastInvoiceAt || c.submittedAt > v.lastInvoiceAt) v.lastInvoiceAt = c.submittedAt;
       vendors.set(key, v);
     }
-    orders.push({
-      caseId: c.jobId,
-      poNumber: p.poNumber || fromOutputs(c, ['po_number', 'po_number_referenced']),
+    // One row per purchase order: its latest match (cases are newest first).
+    const poNumber = p.poNumber || fromOutputs(c, ['po_number', 'po_number_referenced']);
+    const row = {
+      caseId: c.jobId, poNumber,
       grNumber: p.grNumber || fromOutputs(c, ['gr_number', 'grn_number']),
-      poFile: c.files && c.files.purchaseOrder ? c.files.purchaseOrder.name : null,
-      grFile: c.files && c.files.goodsReceipt ? c.files.goodsReceipt.name : null,
-      vendor, invoiceNumber, state: matchState(c, f), submittedAt: c.submittedAt,
-    });
+      vendor, invoiceNumber, state: matchState(c, f), submittedAt: c.submittedAt, invoices: 1,
+    };
+    const poKey = poNumber ? poNumber.toLowerCase() : null;
+    if (poKey && byPo.has(poKey)) byPo.get(poKey).invoices++;
+    else if (poKey) { byPo.set(poKey, row); orders.push(row); } // no PO number read: not a purchase order row
     if (f.completed && f.approved > 0) {
       const terms = fromOutputs(c, ['payment_terms', 'terms']);
       const days = terms && /(\d{1,3})/.test(terms) ? Number(terms.match(/(\d{1,3})/)[1]) : null;
@@ -1811,7 +1884,7 @@ app.get('/api/export.csv', auth.requireRole('approver', 'admin'), wrap(async (re
   }
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="payables-invoices-${ymd(Date.now())}.csv"`);
-  res.send('﻿' + lines.join('\r\n'));
+  res.send('﻿' + displayNames(lines.join('\r\n')));
 }));
 
 // Admin clean-up of the set-up period: test runs, runs that never finished,
@@ -1821,8 +1894,10 @@ app.get('/api/export.csv', auth.requireRole('approver', 'admin'), wrap(async (re
 async function cleanupPlan() {
   const cases = await allCasesRaw();
   const drop = new Map();
+  const dups = duplicateMap(cases.filter((c) => !isTestCase(c)));
   for (const c of cases) {
     if (isTestCase(c)) drop.set(c.jobId, 'test');
+    else if (dups.has(c.jobId)) drop.set(c.jobId, 'duplicate');
     else if (FAILURE.includes(c.status)) drop.set(c.jobId, 'unfinished');
     else if (c.review && c.review.status === 'expired') drop.set(c.jobId, 'expired');
   }
@@ -1834,7 +1909,7 @@ async function cleanupPlan() {
     if (d.status !== 'pending' || drop.has(d.jobId) || pastLimit(d)) dispatches.push(id);
   }
   const count = (k) => [...drop.values()].filter((v) => v === k).length;
-  return { cases, drop, dispatches, summary: { test: count('test'), unfinished: count('unfinished'), expired: count('expired'), reviews: dispatches.length, kept: cases.length - drop.size } };
+  return { cases, drop, dispatches, summary: { test: count('test'), duplicate: count('duplicate'), unfinished: count('unfinished'), expired: count('expired'), reviews: dispatches.length, kept: cases.length - drop.size } };
 }
 
 app.get('/api/admin/cleanup', auth.requireRole('admin'), wrap(async (req, res) => {

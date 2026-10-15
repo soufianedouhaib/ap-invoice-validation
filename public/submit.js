@@ -12,8 +12,8 @@
   var submitting = false;
 
   var SAMPLES = {
-    a: { reference: 'INV-DFM-24017', note: 'Sample A: clean match', prefix: 'sample-a-clean' },
-    b: { reference: 'INV-MTS-55310', note: 'Sample B: exceptions', prefix: 'sample-b-exceptions' },
+    a: { reference: 'INV-DFM-24017', note: 'Example A: clean match', prefix: 'sample-a-clean' },
+    b: { reference: 'INV-LEL-55310', note: 'Example B: exceptions', prefix: 'sample-b-exceptions' },
   };
   var SAMPLE_FILE = { invoice: 'invoice', purchaseOrder: 'purchase-order', goodsReceipt: 'goods-receipt' };
 
@@ -135,7 +135,7 @@
     var btn = document.getElementById('submit-btn');
     var busy = SLOTS.some(function (s) { return slots[s.key].state === 'uploading'; });
     btn.disabled = submitting || !ready();
-    document.getElementById('submit-hint').textContent = submitting ? 'Starting the workflow…' : busy ? 'Waiting for uploads to finish…' : ready() ? 'Takes a few minutes. You can leave the page; the case keeps running.' : 'Add all three PDFs to continue.';
+    document.getElementById('submit-hint').textContent = submitting ? 'Starting the match…' : busy ? 'Waiting for uploads to finish…' : ready() ? 'Takes a few minutes. You can leave the page; matching keeps running.' : 'Add all three PDFs to continue.';
   }
 
   function onSubmit(e) {

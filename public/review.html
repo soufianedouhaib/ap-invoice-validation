@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Review · AP Invoice Validation</title>
-  <link rel="icon" href="/brand-mark.png">
-  <link rel="stylesheet" href="/styles.css?v=23">
+  <title>Review · Payables Hub</title>
+  <link rel="icon" href="/mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css?v=28">
 </head>
 <body>
   <main>
-    <div class="crumb"><a href="/reviews.html">Reviews</a> / <span id="crumb">…</span></div>
+    <div class="crumb"><a href="/reviews.html">Approvals</a> / <span id="crumb">…</span></div>
     <div class="page-head">
       <div>
         <h1 id="title">Loading review…</h1>
@@ -35,7 +35,7 @@
         </div>
 
         <div class="card" id="presentation-card">
-          <div class="card-head"><div><h2>Analyst presentation</h2><p>Prepared by the workflow from the 3-way match.</p></div></div>
+          <div class="card-head"><div><h2>Analyst presentation</h2><p>Prepared from the 3-way match.</p></div></div>
           <div class="md" id="presentation"></div>
         </div>
 
@@ -51,7 +51,7 @@
           <div class="card-head"><div><h2>Your decision</h2><p id="countdown" class="countdown"></p></div></div>
           <div class="alert warn blocked-note" id="blocked" hidden></div>
           <form id="decision-form" class="stack" novalidate>
-            <label class="field"><span>Sent to the workflow</span>
+            <label class="field"><span>Sent as your decision</span>
               <textarea id="response" rows="5" placeholder="e.g. approve 1, dispute 2 and 3"></textarea>
             </label>
             <div class="hint" id="manual-hint" hidden>Edited by hand. <a href="#" id="regen">Rebuild from the selections</a></div>
@@ -75,7 +75,7 @@
     <div class="modal-back" id="confirm" hidden>
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
         <h2 id="confirm-title">Submit this decision?</h2>
-        <p class="muted small" style="margin:0 0 8px">It goes straight to the workflow and cannot be changed afterwards.</p>
+        <p class="muted small" style="margin:0 0 8px">It is sent straight away and cannot be changed afterwards.</p>
         <pre class="mono" id="confirm-text" style="white-space:pre-wrap;background:var(--surface-2);padding:12px;border-radius:8px;margin:0"></pre>
         <div class="actions">
           <button type="button" class="btn" id="confirm-cancel">Back</button>
@@ -84,7 +84,7 @@
       </div>
     </div>
   </main>
-  <script src="/common.js?v=23"></script>
-  <script src="/review.js?v=23"></script>
+  <script src="/common.js?v=28"></script>
+  <script src="/review.js?v=28"></script>
 </body>
 </html>

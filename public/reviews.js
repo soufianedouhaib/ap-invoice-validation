@@ -4,6 +4,7 @@
   var me = null;
 
   AP.boot({ active: 'reviews', roles: ['approver', 'admin'] }, function (user) {
+    document.getElementById('pending-hint').textContent = 'Oldest first. Each review has to be answered within ' + (AP.me.reviewTimeoutMinutes || 60) + ' minutes of arriving.';
     me = user;
     load();
     setInterval(load, 15000);
@@ -15,6 +16,7 @@
       renderPending(d.pending || []);
       renderDone(d.completed || []);
       renderNotDelivered(d.notDelivered || []);
+      renderUnmatched(d.unmatched || []);
       AP.refreshReviewBadge();
     }, function (err) { AP.showError(document.getElementById('error'), err); });
   }
@@ -30,20 +32,42 @@
   function renderPending(list) {
     var wrap = document.getElementById('pending-wrap');
     if (!list.length) {
-      wrap.innerHTML = '<div class="empty">Nothing is waiting for review.</div>';
+      wrap.innerHTML = '<div class="empty">Nothing is waiting for approval.</div>';
       return;
     }
-    wrap.innerHTML = '<table><thead><tr><th>Case</th><th>Submitted by</th><th>Received</th><th>Time limit</th><th></th></tr></thead><tbody>' +
+    wrap.innerHTML = '<table><thead><tr><th>Invoice</th><th>Vendor</th><th class="num">Amount</th><th>Submitted by</th><th>Received</th><th>Time left</th><th></th></tr></thead><tbody>' +
       list.map(function (r) {
         var c = r.case;
-        var title = c ? (c.reference || (c.files.invoice && c.files.invoice.name) || 'Invoice pack') : 'Case not linked yet';
-        var own = c && c.submittedBy && c.submittedBy.email === me.email;
+        var sm = c.summary || {};
+        var title = c.reference || sm.invoiceNumber || (c.files.invoice && c.files.invoice.name) || 'Invoice pack';
+        var own = c.submittedBy && c.submittedBy.email === me.email;
         return '<tr class="clickable" data-id="' + esc(r.id) + '" tabindex="0">' +
-          '<td><strong>' + esc(title) + '</strong><span class="sub mono">' + (c ? 'Job ' + esc(c.jobId) : 'Review ' + esc(r.id.slice(0, 12))) + '</span></td>' +
-          '<td>' + esc(c && c.submittedBy ? c.submittedBy.name : '—') + (own ? '<span class="sub">You — another approver must decide</span>' : '') + '</td>' +
-          '<td>' + esc(AP.fmtAgo(r.receivedAt)) + '<span class="sub">' + esc(AP.fmtDate(r.receivedAt)) + '</span></td>' +
+          '<td><strong>' + esc(title) + '</strong><span class="sub mono">Case ' + esc(AP.shortId(c.jobId)) + '</span></td>' +
+          '<td>' + esc(sm.vendor || '—') + '</td>' +
+          '<td class="num">' + esc(sm.displayAmount || '—') + '</td>' +
+          '<td>' + esc(c.submittedBy ? c.submittedBy.name : '—') + (own ? '<span class="sub">You, so another approver decides</span>' : '') + '</td>' +
+          '<td class="nowrap">' + esc(AP.fmtAgo(r.receivedAt)) + '<span class="sub">' + esc(AP.fmtDate(r.receivedAt)) + '</span></td>' +
           '<td>' + remaining(r) + '</td>' +
           '<td class="num"><a class="btn small primary" href="/review.html?id=' + encodeURIComponent(r.id) + '">Review</a></td>' +
+        '</tr>';
+      }).join('') + '</tbody></table>';
+    bindRows(wrap, function (tr) { return '/review.html?id=' + encodeURIComponent(tr.getAttribute('data-id')); });
+  }
+
+  function renderUnmatched(list) {
+    document.getElementById('um-card').hidden = !list.length;
+    var wrap = document.getElementById('um-wrap');
+    if (!list.length) { wrap.innerHTML = ''; return; }
+    wrap.innerHTML = '<table><thead><tr><th>Invoice</th><th>Vendor</th><th class="num">Amount</th><th>Received</th><th>Time left</th><th></th></tr></thead><tbody>' +
+      list.map(function (r) {
+        var d = r.details || {};
+        return '<tr class="clickable" data-id="' + esc(r.id) + '" tabindex="0">' +
+          '<td><strong>' + esc(d.invoiceNumber || 'Invoice') + '</strong><span class="sub">Not matched to a submission</span></td>' +
+          '<td>' + esc(d.vendor || '—') + '</td>' +
+          '<td class="num">' + esc(d.amount || '—') + '</td>' +
+          '<td class="nowrap">' + esc(AP.fmtAgo(r.receivedAt)) + '<span class="sub">' + esc(AP.fmtDate(r.receivedAt)) + '</span></td>' +
+          '<td>' + remaining(r) + '</td>' +
+          '<td class="num"><a class="btn small" href="/review.html?id=' + encodeURIComponent(r.id) + '">Review</a></td>' +
         '</tr>';
       }).join('') + '</tbody></table>';
     bindRows(wrap, function (tr) { return '/review.html?id=' + encodeURIComponent(tr.getAttribute('data-id')); });
@@ -55,13 +79,13 @@
       wrap.innerHTML = '<div class="empty">No decisions yet.</div>';
       return;
     }
-    wrap.innerHTML = '<table><thead><tr><th>Case</th><th>Decision</th><th>Reviewed by</th><th>Case status</th></tr></thead><tbody>' +
+    wrap.innerHTML = '<table><thead><tr><th>Invoice</th><th>Decision</th><th>Reviewed by</th><th>Case status</th></tr></thead><tbody>' +
       list.map(function (c) {
         var r = c.review || {};
         var title = c.reference || c.summary.invoiceNumber || (c.files.invoice && c.files.invoice.name) || 'Invoice pack';
         var decision = r.status === 'expired' ? '<span class="pill bad plain">Expired unanswered</span>' : esc(truncate(r.response || '', 90));
         return '<tr class="clickable" data-id="' + esc(c.jobId) + '" tabindex="0">' +
-          '<td><strong>' + esc(title) + '</strong><span class="sub mono">Job ' + esc(c.jobId) + '</span></td>' +
+          '<td><strong>' + esc(title) + '</strong><span class="sub mono">Case ' + esc(AP.shortId(c.jobId)) + '</span></td>' +
           '<td class="pre-line" style="max-width:360px">' + decision + '</td>' +
           '<td>' + esc(r.reviewedBy ? r.reviewedBy.name : '—') + '<span class="sub">' + esc(AP.fmtDate(r.reviewedAt)) + '</span></td>' +
           '<td>' + AP.statusPill(c.status) + '</td>' +
@@ -74,14 +98,14 @@
     document.getElementById('nd-card').hidden = !list.length;
     var wrap = document.getElementById('nd-wrap');
     if (!list.length) { wrap.innerHTML = ''; return; }
-    wrap.innerHTML = '<table><thead><tr><th>Case</th><th>Submitted by</th><th>Waiting at</th><th>Since</th></tr></thead><tbody>' +
+    wrap.innerHTML = '<table><thead><tr><th>Invoice</th><th>Submitted by</th><th>Paused at</th><th>Since</th></tr></thead><tbody>' +
       list.map(function (c) {
         var s = c.atReviewStep || {};
         var title = c.reference || (c.files.invoice && c.files.invoice.name) || 'Invoice pack';
         return '<tr class="clickable" data-id="' + esc(c.jobId) + '" tabindex="0">' +
-          '<td><strong>' + esc(title) + '</strong><span class="sub mono">Job ' + esc(c.jobId) + '</span></td>' +
+          '<td><strong>' + esc(title) + '</strong><span class="sub mono">Case ' + esc(AP.shortId(c.jobId)) + '</span></td>' +
           '<td>' + esc(c.submittedBy ? c.submittedBy.name : '—') + '</td>' +
-          '<td>' + esc(s.node || '—') + '<span class="sub">' + esc(s.opusStatus || '') + '</span></td>' +
+          '<td>' + esc(s.node || '—') + '</td>' +
           '<td>' + esc(AP.fmtAgo(s.since)) + '</td></tr>';
       }).join('') + '</tbody></table>';
     bindRows(wrap, function (tr) { return '/case.html?id=' + encodeURIComponent(tr.getAttribute('data-id')); });

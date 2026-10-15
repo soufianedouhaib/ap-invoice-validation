@@ -3,16 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Users · AP Invoice Validation</title>
-  <link rel="icon" href="/brand-mark.png">
-  <link rel="stylesheet" href="/styles.css?v=23">
+  <title>Users · Payables Hub</title>
+  <link rel="icon" href="/mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css?v=28">
 </head>
 <body>
   <main>
     <div class="page-head">
       <div>
         <h1>Users</h1>
-        <p>AP Clerks submit invoice packs and see their own cases. AP Approvers see every case and decide on exceptions. Admins can do both and manage users.</p>
+        <p>AP Clerks submit invoice packs and see their own invoices. AP Approvers see every invoice and decide on exceptions. Admins can do both and manage users.</p>
       </div>
       <button class="btn primary" type="button" id="add-btn">Add user</button>
     </div>
@@ -27,9 +27,9 @@
           <label class="field" id="email-field"><span>Email</span><input type="email" id="f-email" required></label>
           <label class="field"><span>Role</span>
             <select id="f-role">
-              <option value="clerk">AP Clerk — submits invoices</option>
-              <option value="approver">AP Approver — reviews exceptions</option>
-              <option value="admin">Admin — everything, plus users</option>
+              <option value="clerk">AP Clerk, submits invoices</option>
+              <option value="approver">AP Approver, reviews exceptions</option>
+              <option value="admin">Admin, everything plus users</option>
             </select>
           </label>
           <label class="field" id="active-field"><span>Status</span>
@@ -58,7 +58,7 @@
       </div>
     </div>
   </div>
-  <script src="/common.js?v=23"></script>
-  <script src="/users.js?v=23"></script>
+  <script src="/common.js?v=28"></script>
+  <script src="/users.js?v=28"></script>
 </body>
 </html>

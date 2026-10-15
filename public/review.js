@@ -111,12 +111,14 @@
     data = d;
     document.getElementById('layout').hidden = false;
     var c = d.review.case;
-    document.getElementById('title').textContent = c ? (c.reference || (c.files.invoice && c.files.invoice.name) || 'Invoice pack') : 'Invoice review';
-    document.getElementById('crumb').textContent = c ? (c.reference || 'Job ' + c.jobId) : 'Review';
+    var det = d.review.details || {};
+    document.getElementById('title').textContent = c ? (c.reference || (c.summary && c.summary.invoiceNumber) || (c.files.invoice && c.files.invoice.name) || 'Invoice pack')
+      : (det.invoiceNumber ? 'Invoice ' + det.invoiceNumber : 'Invoice review') + (det.vendor ? ' · ' + det.vendor : '');
+    document.getElementById('crumb').textContent = c ? (c.reference || 'Case ' + AP.shortId(c.jobId)) : 'Review';
     document.getElementById('sub').textContent = c
       ? 'Submitted by ' + (c.submittedBy ? c.submittedBy.name : '—') + ' · ' + AP.fmtDate(c.submittedAt) + (c.note ? ' · Note: ' + c.note : '')
-      : 'This review is not linked to a case in the console yet. You can still decide on it.';
-    document.getElementById('case-link').innerHTML = c ? '<a class="btn" href="/case.html?id=' + encodeURIComponent(c.jobId) + '">Open case</a>' : '';
+      : 'This review is not matched to a submission yet. The invoice details below come from the exception brief; you can still decide on it.';
+    document.getElementById('case-link').innerHTML = c ? '<a class="btn" href="/case.html?id=' + encodeURIComponent(c.jobId) + '">Open invoice</a>' : '';
 
     var inputs = d.inputs || {};
     var pres = document.getElementById('presentation');
@@ -231,10 +233,10 @@
     function tick() {
       var ms = deadline - Date.now();
       if (ms <= 0) {
-        el.innerHTML = '<span class="pill bad plain">Past the workflow’s ' + r.timeoutMinutes + '-minute limit; Opus may no longer accept it</span>';
+        el.innerHTML = '<span class="pill bad plain">Past the ' + r.timeoutMinutes + '-minute limit; it may no longer be accepted</span>';
         return;
       }
-      el.textContent = AP.fmtRemaining(ms) + ' left before the workflow stops waiting';
+      el.textContent = AP.fmtRemaining(ms) + ' left to decide';
     }
     tick();
     clearInterval(countdownTimer);
@@ -252,7 +254,7 @@
       done.innerHTML = '<pre class="mono" style="white-space:pre-wrap;margin:0">' + esc(d.response || '') + '</pre>';
     } else {
       document.getElementById('countdown').textContent = '';
-      done.innerHTML = '<div class="alert bad"><strong>Expired</strong>Opus stopped waiting for this decision. The invoice pack has to be submitted again.</div>';
+      done.innerHTML = '<div class="alert bad"><strong>Expired</strong>No decision was made within the time limit. The invoice pack has to be submitted again.</div>';
     }
   }
 
@@ -326,7 +328,7 @@
       var done = document.getElementById('done');
       done.hidden = false;
       document.getElementById('countdown').textContent = '';
-      done.innerHTML = '<div class="alert ok"><strong>Decision sent</strong>The workflow is resuming. It will apply your decisions and finish the payment record.</div>' +
+      done.innerHTML = '<div class="alert ok"><strong>Decision sent</strong>Matching is resuming. It will apply your decisions and finish the payment record.</div>' +
         (r.jobId ? '<p style="margin:12px 0 0"><a class="btn primary block" href="/case.html?id=' + encodeURIComponent(r.jobId) + '">Follow the case</a></p>' : '') +
         '<p style="margin:8px 0 0"><a class="btn block" href="/reviews.html">Back to reviews</a></p>';
       AP.refreshReviewBadge();

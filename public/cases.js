@@ -6,19 +6,24 @@
   var term = '';
 
   var BUCKETS = [
-    { key: 'all', label: 'All cases' },
-    { key: 'progress', label: 'Processing' },
-    { key: 'review', label: 'Awaiting review' },
+    { key: 'all', label: 'All invoices' },
+    { key: 'progress', label: 'Matching' },
+    { key: 'review', label: 'Awaiting approval' },
     { key: 'completed', label: 'Completed' },
-    { key: 'failed', label: 'Failed' },
+    { key: 'failed', label: 'Did not finish' },
   ];
 
   AP.boot({ active: 'cases' }, function (user) {
-    if (user.role === 'clerk') document.getElementById('scope-text').textContent = 'Invoice packs you have submitted, most recent first.';
+    if (user.role === 'clerk') {
+      document.getElementById('page-title').textContent = 'My invoices';
+      document.title = 'My invoices · Payables Hub';
+      document.getElementById('scope-text').textContent = 'Invoice packs you have submitted, most recent first.';
+    }
     document.getElementById('new-btn').hidden = !(user.role === 'clerk' || user.role === 'admin');
-    if (user.role === 'approver') document.getElementById('scope-text').textContent = 'Every invoice pack in the console, most recent first.';
     document.getElementById('export-link').hidden = user.role === 'clerk';
-    if (user.role === 'admin') wireClear();
+    if (user.role === 'admin') { wireClear(); wireCleanup(); }
+    var f = AP.qs('filter');
+    if (f && /^(progress|review|completed|failed)$/.test(f)) filter = f;
     document.getElementById('search').addEventListener('input', function (e) { term = e.target.value.trim().toLowerCase(); render(); });
     load();
     setInterval(load, 30000);
@@ -49,6 +54,42 @@
         note.hidden = false;
         note.textContent = 'Nothing was cleared: ' + err.message;
       }).then(function () { yes.disabled = false; yes.textContent = 'Yes, clear them'; });
+    });
+  }
+
+  // Admin: delete what was left from setting the system up (test runs, runs
+  // that never finished, reviews that expired). Previewed first.
+  function wireCleanup() {
+    var btn = document.getElementById('cleanup-btn');
+    var box = document.getElementById('cleanup-confirm');
+    var text = document.getElementById('cleanup-text');
+    var yes = document.getElementById('cleanup-yes');
+    var note = document.getElementById('clear-note');
+    btn.hidden = false;
+    function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
+    btn.addEventListener('click', function () {
+      box.hidden = false; note.hidden = true; yes.disabled = true;
+      text.innerHTML = '<strong style="display:inline">Clean up set-up data?</strong> Checking…';
+      AP.api('/api/admin/cleanup').then(function (p) {
+        var parts = [];
+        if (p.test) parts.push(plural(p.test, 'hidden set-up run', 'hidden set-up runs'));
+        if (p.unfinished) parts.push(plural(p.unfinished, 'run that did not finish', 'runs that did not finish'));
+        if (p.expired) parts.push(plural(p.expired, 'invoice whose review expired', 'invoices whose review expired'));
+        if (p.reviews) parts.push(plural(p.reviews, 'expired or unmatched review request', 'expired or unmatched review requests'));
+        if (!parts.length) { text.innerHTML = '<strong style="display:inline">Nothing to clean up.</strong> ' + plural(p.kept, 'invoice stays', 'invoices stay') + '.'; return; }
+        text.innerHTML = '<strong style="display:inline">Clean up set-up data?</strong> Deletes ' + esc(parts.join(', ')) + '. ' + esc(plural(p.kept, 'invoice stays', 'invoices stay')) + '. This cannot be undone.';
+        yes.disabled = false;
+      }, function (err) { text.textContent = err.message; });
+    });
+    document.getElementById('cleanup-no').addEventListener('click', function () { box.hidden = true; });
+    yes.addEventListener('click', function () {
+      yes.disabled = true; yes.textContent = 'Deleting…';
+      AP.api('/api/admin/cleanup', { method: 'POST' }).then(function (p) {
+        box.hidden = true; note.hidden = false;
+        note.textContent = 'Cleaned up. ' + plural(p.kept, 'invoice remains', 'invoices remain') + '.';
+        load(); AP.refreshReviewBadge();
+      }, function (err) { box.hidden = true; note.hidden = false; note.textContent = 'Nothing was deleted: ' + err.message; })
+        .then(function () { yes.textContent = 'Yes, delete them'; });
     });
   }
 
@@ -83,19 +124,19 @@
     document.getElementById('count-text').textContent = rows.length === cases.length ? '' : rows.length + ' of ' + cases.length + ' shown';
     var wrap = document.getElementById('table-wrap');
     if (!rows.length) {
-      wrap.innerHTML = '<div class="empty">' + (cases.length ? 'No cases match this filter.' : 'No cases yet. Submissions will appear here.') + '</div>';
+      wrap.innerHTML = '<div class="empty">' + (cases.length ? 'No invoices match this filter.' : 'No invoices yet. Submissions will appear here.') + '</div>';
       return;
     }
-    wrap.innerHTML = '<table><thead><tr><th>Case</th><th>Vendor</th><th class="num">Amount</th><th>Status</th><th>Submitted by</th><th>Submitted</th><th class="num">Duration</th></tr></thead><tbody>' +
+    wrap.innerHTML = '<table><thead><tr><th>Invoice</th><th>Vendor</th><th class="num">Amount</th><th>Status</th><th>Submitted by</th><th>Submitted</th><th class="num">Duration</th></tr></thead><tbody>' +
       rows.map(function (c) {
         var title = c.reference || c.summary.invoiceNumber || (c.files.invoice && c.files.invoice.name) || 'Invoice pack';
         return '<tr class="clickable" data-id="' + esc(c.jobId) + '" tabindex="0">' +
-          '<td><strong>' + esc(title) + '</strong><span class="sub mono">Job ' + esc(c.jobId) + '</span></td>' +
+          '<td><strong>' + esc(title) + '</strong><span class="sub mono">Case ' + esc(AP.shortId(c.jobId)) + '</span></td>' +
           '<td>' + esc(c.summary.vendor || '—') + '</td>' +
           '<td class="num">' + esc(c.summary.displayAmount || '—') + (c.summary.displayNote ? '<span class="sub">' + esc(c.summary.displayNote) + '</span>' : '') + '</td>' +
-          '<td>' + AP.statusPill(c.status) + (c.review && c.review.status === 'submitted' ? '<span class="sub">Reviewed by ' + esc(c.review.reviewedBy && c.review.reviewedBy.name) + '</span>' : '') + '</td>' +
+          '<td>' + (c.status === 'COMPLETED' && c.summary.displayNote === 'held' ? '<span class="pill bad">Held</span>' : AP.statusPill(c.status)) + (c.review && c.review.status === 'submitted' ? '<span class="sub">Reviewed by ' + esc(c.review.reviewedBy && c.review.reviewedBy.name) + '</span>' : '') + '</td>' +
           '<td>' + esc(c.submittedBy ? c.submittedBy.name : '—') + '</td>' +
-          '<td>' + esc(AP.fmtDate(c.submittedAt)) + '</td>' +
+          '<td class="nowrap">' + esc(AP.fmtDate(c.submittedAt)) + '</td>' +
           '<td class="num">' + esc(c.completedAt ? AP.fmtDuration(c.submittedAt, c.completedAt) : '—') + '</td>' +
         '</tr>';
       }).join('') + '</tbody></table>';

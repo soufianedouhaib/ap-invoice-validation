@@ -3,32 +3,46 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Settings · AP Invoice Validation</title>
-  <link rel="icon" href="/brand-mark.png">
-  <link rel="stylesheet" href="/styles.css?v=23">
+  <title>Settings · Payables Hub</title>
+  <link rel="icon" href="/mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css?v=28">
 </head>
 <body>
   <main>
-    <div class="page-head"><div><h1>Settings</h1><p>Your account, and the connection to the Opus workflow.</p></div></div>
+    <div class="page-head"><div><h1>Settings</h1><p id="settings-lede">Your account and preferences.</p></div></div>
 
     <div class="stack">
       <div class="card">
-        <div class="card-head"><div><h2>My account</h2><p id="account-line"></p></div></div>
+        <div class="card-head"><div><h2>My account</h2></div></div>
+        <dl class="kv" id="account"></dl>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><div><h2>Password</h2><p>At least 10 characters.</p></div></div>
         <form id="pw-form" class="grid-3" novalidate style="align-items:end">
           <label class="field"><span>Current password</span><input type="password" id="pw-current" autocomplete="current-password"></label>
-          <label class="field"><span>New password</span><input type="password" id="pw-next" autocomplete="new-password" placeholder="At least 10 characters"></label>
+          <label class="field"><span>New password</span><input type="password" id="pw-next" autocomplete="new-password"></label>
           <div><button type="submit" class="btn primary" id="pw-btn">Change password</button></div>
         </form>
         <div class="alert" id="pw-msg" hidden style="margin-top:12px"></div>
       </div>
 
-      <div class="card" id="conn-card" hidden>
-        <div class="card-head"><div><h2>Workflow connection</h2><p>Read-only. Change these in Vercel → Settings → Environment Variables, then redeploy: changes never reach an existing build.</p></div></div>
-        <div id="conn"></div>
+      <div class="card">
+        <div class="card-head"><div><h2>Appearance</h2></div></div>
+        <div class="seg-choice" role="radiogroup" aria-label="Theme" id="theme-choice">
+          <button type="button" role="radio" data-theme-choice="system">Match my device</button>
+          <button type="button" role="radio" data-theme-choice="light">Light</button>
+          <button type="button" role="radio" data-theme-choice="dark">Dark</button>
+        </div>
+      </div>
+
+      <div class="card" id="rules-card" hidden>
+        <div class="card-head"><div><h2>Approval rules</h2><p>How invoices with exceptions are handled. Ask IT to change these.</p></div></div>
+        <dl class="kv" id="rules"></dl>
       </div>
     </div>
   </main>
-  <script src="/common.js?v=23"></script>
-  <script src="/settings.js?v=23"></script>
+  <script src="/common.js?v=28"></script>
+  <script src="/settings.js?v=28"></script>
 </body>
 </html>

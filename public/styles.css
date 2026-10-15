@@ -1,7 +1,6 @@
 /* ------------------------------------------------------------------ *
- * AP Invoice Validation console
- * Applied AI brand: Safety Blue #387BF0 is the only brand accent.
- * Same design system as the Account Transfer Validation console.
+ * Payables Hub · Finance Shared Services
+ * One brand accent (blue #387BF0).
  * Colours are tokens; nothing below the three token blocks uses a literal
  * colour except the logo filter and the danger button label.
  * ------------------------------------------------------------------ */
@@ -159,110 +158,134 @@ code, pre, .mono { font-family: 'Google Sans Mono', ui-monospace, SFMono-Regular
 .small { font-size: 13px; }
 .nowrap { white-space: nowrap; }
 
-/* ---------------------------------- rail -------------------------------- *
- * A left rail that is a strip of icons until the pointer is on it, then
- * floats open over the page behind a blurred scrim. The toggle pins it.
+/* -------------------------------- sidebar ------------------------------- *
+ * Open and labelled by default, grouped into sections. On wide screens the
+ * chevron folds it to an icon strip; below 1024px it becomes a drawer
+ * opened from the top bar.
  * -------------------------------------------------------------------------- */
 
 :root {
-  --rail: 68px;
-  --rail-open: min(258px, 82vw);
-  --rail-content: 234px;
+  --side: 248px;
+  --side-folded: 68px;
 }
 
-body.has-sidebar { padding-left: var(--rail); }
+body.has-sidebar { padding-left: var(--side); }
+body.has-sidebar.side-collapsed { padding-left: var(--side-folded); }
 
 .sidebar {
   position: fixed;
   inset: 0 auto 0 0;
-  width: var(--rail);
+  width: var(--side);
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 16px 12px;
+  padding: 14px 12px 12px;
   background: var(--surface);
   border-right: 1px solid var(--line);
   overflow: hidden;
   z-index: 30;
-  transition: width 0.18s ease, box-shadow 0.18s ease;
+  transition: width 0.18s ease, transform 0.2s ease;
 }
-body.side-open .sidebar { width: var(--rail-open); box-shadow: 0 0 0 1px var(--line), 12px 0 32px rgba(0, 0, 0, 0.1); }
+body.side-collapsed .sidebar { width: var(--side-folded); }
 
 .side-scrim {
   position: fixed; inset: 0; z-index: 25;
-  background: rgba(15, 20, 25, 0.2);
-  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  background: var(--overlay);
   opacity: 0; pointer-events: none;
   transition: opacity 0.18s ease;
 }
-body.side-open .side-scrim { opacity: 1; }
-body.side-open.side-pinned .side-scrim { pointer-events: auto; }
-:root[data-theme='dark'] .side-scrim { background: rgba(0, 0, 0, 0.42); }
-@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .side-scrim { background: rgba(0, 0, 0, 0.42); } }
 
-.side-top { display: flex; align-items: center; gap: 8px; padding: 0 4px; }
-.side-toggle {
+.side-head { display: flex; align-items: center; gap: 6px; padding: 2px 2px 12px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.brand-lockup { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1 1 auto; text-decoration: none; color: inherit; padding: 2px; }
+.brand-lockup:hover { text-decoration: none; }
+.product-mark { flex: none; display: block; }
+.brand-lockup .label { font-weight: 600; font-size: 14.5px; letter-spacing: -0.01em; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brand-lockup .label small { display: block; font-weight: 400; font-size: 11.5px; color: var(--muted); letter-spacing: 0; }
+
+.side-toggle, .icon-btn {
   flex: 0 0 auto; width: 30px; height: 30px; display: grid; place-items: center;
   border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--muted);
-  cursor: pointer; transition: transform 0.15s ease;
+  cursor: pointer; padding: 0;
 }
-.side-toggle:hover { background: var(--surface-2); color: var(--ink); }
-body.side-open .side-toggle { transform: rotate(180deg); }
+.side-toggle:hover, .icon-btn:hover { background: var(--surface-2); color: var(--ink); }
+.side-toggle .ico { width: 16px; height: 16px; transition: transform 0.15s ease; }
+body.side-collapsed .side-toggle .ico { transform: rotate(180deg); }
+.side-close { display: none; }
 
-.brand-lockup {
-  display: flex; align-items: center; gap: 10px; min-width: 0;
-  text-decoration: none; color: inherit; padding: 6px 4px 12px;
-  border-bottom: 1px solid var(--line); margin: 6px 0 10px;
+.side-nav { display: flex; flex-direction: column; gap: 14px; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 4px 0 8px; }
+.nav-group { display: flex; flex-direction: column; gap: 1px; }
+.nav-title {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  margin: 0 0 4px; padding: 0 10px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted);
+  white-space: nowrap;
 }
-.brand-lockup:hover { text-decoration: none; }
-.brand-mark { width: 26px; height: 26px; flex: none; display: block; filter: var(--logo-filter); }
-.brand-lockup .label { font-weight: 600; font-size: 13.5px; letter-spacing: -0.01em; line-height: 1.25; }
-.brand-lockup .label small { display: block; font-weight: 400; font-size: 11.5px; color: var(--muted); }
-
-.side-nav { display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.nav-note { font-size: 10.5px; font-weight: 500; letter-spacing: 0.02em; text-transform: none; color: var(--muted-2); }
 
 .side-nav a, .side-link, .side-out {
   position: relative;
   display: flex; align-items: center; gap: 11px;
-  padding: 9px 10px; border-radius: 9px; border: 0; background: transparent;
+  padding: 8px 10px; border-radius: 9px; border: 0; background: transparent;
   color: var(--ink-2); font: inherit; font-size: 13.5px; text-decoration: none;
-  cursor: pointer; white-space: nowrap; text-align: left;
+  cursor: pointer; white-space: nowrap; text-align: left; width: 100%;
 }
 .side-nav a:hover, .side-link:hover, .side-out:hover { background: var(--surface-2); color: var(--ink); text-decoration: none; }
 .side-nav a[aria-current='page'] { background: var(--brand-soft); color: var(--brand-ink); font-weight: 500; }
 .ico { width: 19px; height: 19px; flex: 0 0 auto; }
+.sidebar .label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
-/* A count on a rail icon. It sits on the icon so it is seen with the rail
-   shut, and moves to the end of the row when the rail opens. */
 .badge-count {
-  position: absolute; left: 24px; top: 4px;
-  min-width: 17px; height: 17px; padding: 0 5px; border-radius: 9px;
-  background: var(--series-held); color: #ffffff; font-size: 10.5px; font-weight: 700;
+  margin-left: auto;
+  min-width: 18px; height: 18px; padding: 0 6px; border-radius: 9px;
+  background: var(--series-held); color: #ffffff; font-size: 11px; font-weight: 700;
   display: inline-grid; place-items: center; line-height: 1;
-  transition: left 0.18s ease;
 }
-body.side-open .badge-count { left: auto; right: 10px; top: 50%; transform: translateY(-50%); }
 
-.side-foot { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; }
-.side-account { display: flex; align-items: center; gap: 11px; padding: 9px 10px; min-width: 0; }
+.side-foot { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 1px; }
+.side-account { display: flex; align-items: center; gap: 11px; padding: 8px 10px; min-width: 0; }
 .side-account .avatar {
-  width: 19px; height: 19px; flex: 0 0 auto; border-radius: 999px;
+  width: 22px; height: 22px; flex: 0 0 auto; border-radius: 999px;
   background: var(--brand); color: var(--on-brand);
   display: grid; place-items: center; font-size: 11px; font-weight: 600;
 }
-.side-account .label { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; white-space: normal; }
+.side-account .label { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
 .account-name { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account-role { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
 
-/* Every row is laid out at the OPEN width in both states and the rail clips
-   it, so nothing re-wraps while the rail animates. */
-.side-top, .brand-lockup, .side-nav a, .side-link, .side-out, .side-account { width: var(--rail-content); flex: none; }
-.sidebar .label { white-space: nowrap; opacity: 0; transition: opacity 0.12s ease; }
-body.side-open .sidebar .label { opacity: 1; transition: opacity 0.16s ease 0.06s; }
-.sidebar .side-account .label { white-space: normal; }
+/* Folded to icons: labels, section titles and the wordmark go; a thin rule
+   keeps the sections apart. */
+body.side-collapsed .sidebar .label,
+body.side-collapsed .nav-title { display: none; }
+body.side-collapsed .nav-group + .nav-group { border-top: 1px solid var(--line); padding-top: 12px; }
+body.side-collapsed .side-head { flex-direction: column; gap: 10px; }
+body.side-collapsed .side-nav a, body.side-collapsed .side-link, body.side-collapsed .side-out, body.side-collapsed .side-account { justify-content: center; padding: 9px 0; }
+body.side-collapsed .badge-count { position: absolute; top: 2px; right: 4px; min-width: 16px; height: 16px; font-size: 10px; padding: 0 4px; }
+
+.topbar { display: none; }
+
+@media (max-width: 1023px) {
+  body.has-sidebar, body.has-sidebar.side-collapsed { padding-left: 0; }
+  .topbar {
+    display: flex; align-items: center; gap: 12px; position: sticky; top: 0; z-index: 20;
+    padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--line);
+  }
+  .topbar-brand { display: flex; align-items: center; gap: 9px; color: var(--ink); font-weight: 600; font-size: 15px; }
+  .topbar-brand:hover { text-decoration: none; }
+  .sidebar, body.side-collapsed .sidebar { width: min(280px, 86vw); transform: translateX(-102%); box-shadow: 12px 0 32px rgba(0, 0, 0, 0.14); }
+  body.nav-open .sidebar { transform: none; }
+  body.nav-open .side-scrim { opacity: 1; pointer-events: auto; }
+  .side-toggle { display: none; }
+  .side-close { display: grid; }
+  body.side-collapsed .sidebar .label { display: block; }
+  body.side-collapsed .side-account .label { display: flex; }
+  body.side-collapsed .nav-title { display: flex; }
+  body.side-collapsed .side-head { flex-direction: row; }
+  body.side-collapsed .side-nav a, body.side-collapsed .side-link, body.side-collapsed .side-out, body.side-collapsed .side-account { justify-content: flex-start; padding: 8px 10px; }
+  body.side-collapsed .badge-count { position: static; }
+  body.side-collapsed .nav-group + .nav-group { border-top: 0; padding-top: 0; }
+}
 
 @media (prefers-reduced-motion: reduce) {
-  .sidebar, .side-scrim, .sidebar .label, .badge-count { transition: none; }
+  .sidebar, .side-scrim, .side-toggle .ico { transition: none; }
 }
 
 /* -------------------------------- layout -------------------------------- */
@@ -288,7 +311,7 @@ main, .page { width: 100%; max-width: 1180px; margin: 0 auto; padding: 30px 24px
   width: 100%; max-width: 1180px; margin: 0 auto; padding: 0 24px 28px;
   color: var(--muted); font-size: 12.5px; display: flex; gap: 14px; flex-wrap: wrap; align-items: center;
 }
-.footer img { height: 13px; width: auto; filter: var(--logo-filter); opacity: 0.75; }
+.footer b { font-weight: 600; color: var(--ink-2); }
 
 .setup-banner { background: var(--warn-soft); color: var(--warn); border-bottom: 1px solid var(--warn-line); }
 .setup-banner .inner { max-width: 1180px; margin: 0 auto; padding: 9px 24px; font-size: 14px; }
@@ -529,7 +552,9 @@ pre.presentation { white-space: pre-wrap; margin: 0; font-size: 13px; line-heigh
 .signin { display: flex; justify-content: center; align-items: center; padding-top: 32px; padding-bottom: 32px; }
 .signin-page main.signin { max-width: none; }
 .signin-card { width: 100%; max-width: 440px; }
-.signin-logo { height: 24px; width: auto; display: block; margin-bottom: 20px; filter: var(--logo-filter); }
+.signin-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
+.signin-name { font-weight: 600; font-size: 17px; letter-spacing: -0.01em; line-height: 1.2; }
+.signin-name small { display: block; font-weight: 400; font-size: 12.5px; color: var(--muted); letter-spacing: 0; margin-top: 2px; }
 .signin-card h1 { font-size: 23px; margin: 10px 0 6px; }
 .signin-card .lead { color: var(--muted); font-size: 13.5px; margin-bottom: 18px; }
 .signin-page .footer { justify-content: center; }
@@ -730,3 +755,54 @@ pre.presentation { white-space: pre-wrap; margin: 0; font-size: 13px; line-heigh
 .demo-pass input { flex: 1 1 auto; min-width: 0; padding: 8px 10px; }
 
 .row-actions { display: inline-flex; gap: 8px; justify-content: flex-end; }
+
+/* ------------------------------ settings -------------------------------- */
+.seg-choice { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 10px; padding: 3px; gap: 3px; background: var(--surface-2); flex-wrap: wrap; }
+.seg-choice button { border: 0; background: transparent; color: var(--ink-2); font: inherit; font-size: 13.5px; padding: 7px 14px; border-radius: 7px; cursor: pointer; }
+.seg-choice button[aria-checked='true'] { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--line-strong); font-weight: 500; }
+
+/* ------------------------------- overview ------------------------------- */
+.eyebrow { font-size: 12.5px; color: var(--muted); margin-bottom: 4px !important; }
+.page-head .btn .ico { width: 17px; height: 17px; }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.kpi {
+  display: flex; flex-direction: column; gap: 2px; min-width: 0;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 14px 16px; color: var(--ink);
+  box-shadow: var(--shadow);
+}
+.kpi:hover { border-color: var(--brand-line); text-decoration: none; }
+.kpi-label { font-size: 12px; color: var(--muted); font-weight: 500; }
+.kpi-value { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.kpi-sub { font-size: 12.5px; color: var(--muted); }
+.kpi.warn .kpi-value { color: var(--warn); }
+.kpi.bad .kpi-value { color: var(--bad); }
+.kpi.ok .kpi-value { color: var(--ok); }
+.overview-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.card-head.pad { padding: 16px 18px 0; margin-bottom: 10px; }
+.attention { list-style: none; margin: 0; padding: 0 0 6px; }
+.att-item { display: grid; grid-template-columns: 112px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 12px 18px; border-top: 1px solid var(--line); }
+.att-item .pill { justify-self: start; margin-top: 1px; }
+.att-body { display: flex; flex-direction: column; min-width: 0; line-height: 1.4; }
+.att-body strong { font-weight: 600; font-size: 14px; overflow-wrap: anywhere; }
+.att-meta { font-size: 12.5px; color: var(--muted); }
+.att-text { font-size: 13px; color: var(--ink-2); margin-top: 2px; }
+.att-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.att-empty { display: flex; gap: 12px; align-items: flex-start; padding: 16px 18px 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13.5px; }
+.att-empty .ico { color: var(--ok); width: 22px; height: 22px; }
+.att-empty strong { display: block; color: var(--ink); font-weight: 600; }
+@media (max-width: 1100px) { .overview-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 720px) {
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .att-item { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .att-actions { justify-content: flex-start; }
+}
+
+/* ------------------------- read-only neighbour areas -------------------- */
+.ro-pill { vertical-align: middle; font-size: 12px; font-weight: 500; margin-left: 6px; position: relative; top: -3px; }
+.source-note { margin-bottom: 16px; }
+.att-more { padding: 10px 18px 12px; border-top: 1px solid var(--line); font-size: 13.5px; }
+table.compact td strong { overflow-wrap: anywhere; }
+@media (max-width: 720px) {
+  .col-amount { display: none; }
+  .kpi-value { font-size: 18px; }
+}

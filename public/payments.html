@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Payment run · Payables Hub</title>
+  <link rel="icon" href="/mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css?v=28">
+</head>
+<body>
+  <main data-view="payments">
+    <div class="page-head">
+      <div>
+        <p class="eyebrow">Suppliers &amp; payments</p>
+        <h1>Payment run <span class="pill plain ro-pill">Read only</span></h1>
+        <p id="lede"></p>
+      </div>
+    </div>
+    <div class="alert info source-note" id="source"></div>
+    <div class="card flush">
+      <div class="toolbar" style="padding:14px 16px;border-bottom:1px solid var(--border)">
+        <input type="search" id="search" placeholder="Search" aria-label="Search">
+        <span class="muted small" id="count-text"></span>
+      </div>
+      <div class="table-wrap" id="table-wrap"><div class="empty">Loading…</div></div>
+    </div>
+    <div class="alert bad" id="error" hidden style="margin-top:16px"></div>
+  </main>
+  <script src="/common.js?v=28"></script>
+  <script src="/ledger.js?v=28"></script>
+</body>
+</html>

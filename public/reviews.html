@@ -3,16 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Reviews · AP Invoice Validation</title>
-  <link rel="icon" href="/brand-mark.png">
-  <link rel="stylesheet" href="/styles.css?v=23">
+  <title>Approvals · Payables Hub</title>
+  <link rel="icon" href="/mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css?v=28">
 </head>
 <body>
   <main>
     <div class="page-head">
       <div>
-        <h1>Pending reviews</h1>
-        <p>Invoices whose 3-way match found exceptions. The workflow is paused on each one until an approver decides.</p>
+        <h1>Approvals</h1>
+        <p>Invoices whose 3-way match found exceptions. Each one waits here until an approver decides.</p>
       </div>
     </div>
 
@@ -20,22 +20,27 @@
 
     <div class="stack">
       <div class="card flush">
-        <div class="card-head" style="padding:16px 18px 0"><div><h2>Waiting for a decision</h2><p id="pending-hint">Oldest first. Opus gives up on a review after its time limit, so answer these quickly.</p></div></div>
+        <div class="card-head" style="padding:16px 18px 0"><div><h2>Waiting for a decision</h2><p id="pending-hint">Oldest first. Each review has a time limit, shown on the right.</p></div></div>
         <div class="table-wrap" id="pending-wrap" style="margin-top:12px"><div class="empty">Loading…</div></div>
       </div>
 
+      <div class="card flush" id="um-card" hidden>
+        <div class="card-head" style="padding:16px 18px 0"><div><h2>Not yet matched to a submission</h2><p>Review requests the hub could not tie to an invoice pack. The invoice details come from the exception brief; they can still be decided.</p></div></div>
+        <div class="table-wrap" id="um-wrap" style="margin-top:12px"></div>
+      </div>
+
       <div class="card flush" id="nd-card" hidden>
-        <div class="card-head" style="padding:16px 18px 0"><div><h2>Waiting in Opus, not yet connected to this app</h2><p>Opus has paused these at its review step, but has not sent the review here, so they cannot be decided in this app. Answer them in Opus (Jobs), or replace the review step with an Off-Platform Task pointing to this app (see Settings).</p></div></div>
+        <div class="card-head" style="padding:16px 18px 0"><div><h2>Paused, request not received</h2><p>Admins only. These invoices are paused at the review step, but the review request has not reached the hub, so they cannot be decided here. Use Report a problem on the invoice.</p></div></div>
         <div class="table-wrap" id="nd-wrap" style="margin-top:12px"></div>
       </div>
 
       <div class="card flush">
-        <div class="card-head" style="padding:16px 18px 0"><div><h2>Review log</h2><p>The 50 most recent decisions.</p></div></div>
+        <div class="card-head" style="padding:16px 18px 0"><div><h2>Decision log</h2><p>The 50 most recent decisions.</p></div></div>
         <div class="table-wrap" id="done-wrap" style="margin-top:12px"><div class="empty">Loading…</div></div>
       </div>
     </div>
   </main>
-  <script src="/common.js?v=23"></script>
-  <script src="/reviews.js?v=23"></script>
+  <script src="/common.js?v=28"></script>
+  <script src="/reviews.js?v=28"></script>
 </body>
 </html>

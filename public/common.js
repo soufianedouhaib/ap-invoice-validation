@@ -70,6 +70,18 @@
     return Math.round(h / 24) + ' d ago';
   }
 
+  // A case id as people read it: no repeated "case-" prefix, and a long
+  // UUID cut to its first block (the full id is on the case page).
+  function shortId(id) {
+    var s = String(id || '').replace(/^case-/i, '');
+    return /^[0-9a-f]{8}-[0-9a-f-]{20,}$/i.test(s) ? s.slice(0, 8) : s;
+  }
+
+  // "Vendor · 2 min ago" with each part kept whole when the line wraps.
+  function metaLine(parts) {
+    return parts.filter(Boolean).map(function (p) { return '<span class="nowrap">' + esc(p) + '</span>'; }).join(' · ');
+  }
+
   function fmtDuration(fromIso, toIso) {
     if (!fromIso || !toIso) return '—';
     var s = Math.max(0, Math.round((new Date(toIso) - new Date(fromIso)) / 1000));
@@ -126,9 +138,9 @@
     PENDING: ['Queued', 'info'],
     WAITING: ['Processing', 'info'],
     UNKNOWN: ['Processing', 'info'],
-    WAITING_REVIEW: ['Awaiting AP Approver', 'warn'],
+    WAITING_REVIEW: ['Awaiting approval', 'warn'],
     COMPLETED: ['Completed', 'ok'],
-    FAILED: ['Failed', 'bad'],
+    FAILED: ['Did not finish', 'bad'],
     TIMED_OUT: ['Timed out', 'bad'],
     CANCELLED: ['Cancelled', 'bad'],
   };
@@ -294,57 +306,88 @@
     try { raw = typeof v === 'string' ? v : JSON.stringify(v, null, 2); } catch (e) { raw = String(v); }
     raw = brandFree(raw);
     return '<div class="jv">' + jsonView(v, 0) + '</div>' +
-      (v && typeof v === 'object' ? '<details class="raw"><summary>Show raw JSON</summary><pre>' + esc(raw) + '</pre></details>' : '');
+      (v && typeof v === 'object' && window.AP.me && window.AP.me.user.role === 'admin' ? '<details class="raw"><summary>Show raw JSON</summary><pre>' + esc(raw) + '</pre></details>' : '');
   }
 
   // ---------- chrome: the left rail ----------
 
   var ICONS = {
+    overview: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="3.5" width="7" height="4.5" rx="1.6"/><rect x="13.5" y="11" width="7" height="9.5" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6"/>',
     submit: '<path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M4 16v2.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V16"/>',
-    cases: '<path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/>',
+    cases: '<path d="M7 3.5h7l4.5 4.5v11A1.5 1.5 0 0 1 17 20.5H7A1.5 1.5 0 0 1 5.5 19V5A1.5 1.5 0 0 1 7 3.5z"/><path d="M13.5 3.5V8h4.5M9 12.5h6M9 16h6"/>',
     reviews: '<path d="M9 11.5l2 2 4-4.5"/><rect x="4" y="4" width="16" height="16" rx="3"/>',
+    vendors: '<path d="M4 20V9.5L12 5l8 4.5V20"/><path d="M9 20v-5.5h6V20M3 20h18"/>',
+    orders: '<rect x="5" y="3.5" width="14" height="17" rx="2"/><path d="M9 3.5V6h6V3.5M8.5 11h7M8.5 14.5h7M8.5 18h4"/>',
+    payments: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18M7 14.5h3"/>',
     report: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
     users: '<circle cx="9" cy="8" r="3.2"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0"/><path d="M16 5.2a3 3 0 0 1 0 5.6M18 19a5 5 0 0 0-2.6-4.4"/>',
     settings: '<circle cx="12" cy="12" r="3.2"/><path d="M19.4 14.5a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5v.2a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1h.2a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/>',
     theme: '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor"/>',
-    support: '<path d="M3 7l9 6 9-6"/><rect x="3" y="5" width="18" height="14" rx="2"/>',
+    support: '<circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.4a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.1-2.4 3.5M12 16.8v.1"/>',
     signout: '<path d="M10 4H5.5A1.5 1.5 0 0 0 4 5.5v13A1.5 1.5 0 0 0 5.5 20H10"/><path d="M15 8l4 4-4 4M19 12H9"/>',
-    chevron: '<path d="M9 6l6 6-6 6"/>'
+    chevron: '<path d="M15 6l-6 6 6 6"/>',
+    menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+    close: '<path d="M6 6l12 12M18 6L6 18"/>'
   };
 
   function icon(name) {
     return '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICONS[name] || '') + '</svg>';
   }
 
-  // What each role sees, in the order it works: a clerk submits first, an
-  // approver decides first, an admin oversees.
-  function navLinks(user) {
+  // The product's own mark: a ledger page with a tick, in the brand colour.
+  var PRODUCT = { name: 'Payables Hub', unit: 'Finance Shared Services', company: 'Harbourline Group' };
+  function productMark(size) {
+    size = size || 28;
+    return '<svg class="product-mark" width="' + size + '" height="' + size + '" viewBox="0 0 32 32" aria-hidden="true">' +
+      '<rect width="32" height="32" rx="8" fill="var(--brand)"/>' +
+      '<path d="M10 8.5h8.5l4 4V23a1.5 1.5 0 0 1-1.5 1.5H10A1.5 1.5 0 0 1 8.5 23V10A1.5 1.5 0 0 1 10 8.5z" fill="none" stroke="var(--on-brand)" stroke-width="1.8" stroke-linejoin="round"/>' +
+      '<path d="M12.5 17.5l2.4 2.4 4.6-5" fill="none" stroke="var(--on-brand)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  }
+
+  // What each role sees, grouped the way a finance system is: the payables
+  // work first, then the neighbouring records it reads from (read only),
+  // then reporting and administration.
+  function navGroups(user) {
     var r = user.role;
+    var related = { title: 'Suppliers & payments', note: 'Read only', links: [
+      { href: '/vendors.html', label: 'Vendors', key: 'vendors', icon: 'vendors', ro: true },
+      { href: '/orders.html', label: 'Purchase orders', key: 'orders', icon: 'orders', ro: true },
+      { href: '/payments.html', label: 'Payment run', key: 'payments', icon: 'payments', ro: true }
+    ] };
+    var insights = { title: 'Insights', links: [{ href: '/report.html', label: 'Reports', key: 'report', icon: 'report' }] };
     if (r === 'clerk') return [
-      { href: '/submit.html', label: 'New submission', key: 'submit', icon: 'submit' },
-      { href: '/', label: 'My cases', key: 'cases', icon: 'cases' },
-      { href: '/report.html', label: 'Report', key: 'report', icon: 'report' },
-      { href: '/settings.html', label: 'Settings', key: 'settings', icon: 'settings' }
+      { title: 'Payables', links: [
+        { href: '/overview.html', label: 'Overview', key: 'overview', icon: 'overview' },
+        { href: '/submit.html', label: 'New submission', key: 'submit', icon: 'submit' },
+        { href: '/', label: 'My invoices', key: 'cases', icon: 'cases' }
+      ] }, related, insights,
+      { title: 'Account', links: [{ href: '/settings.html', label: 'Settings', key: 'settings', icon: 'settings' }] }
     ];
     if (r === 'approver') return [
-      { href: '/reviews.html', label: 'Pending reviews', key: 'reviews', icon: 'reviews', badge: true },
-      { href: '/', label: 'All cases', key: 'cases', icon: 'cases' },
-      { href: '/report.html', label: 'Report', key: 'report', icon: 'report' },
-      { href: '/settings.html', label: 'Settings', key: 'settings', icon: 'settings' }
+      { title: 'Payables', links: [
+        { href: '/reviews.html', label: 'Approvals', key: 'reviews', icon: 'reviews', badge: true },
+        { href: '/overview.html', label: 'Overview', key: 'overview', icon: 'overview' },
+        { href: '/', label: 'Invoices', key: 'cases', icon: 'cases' }
+      ] }, related, insights,
+      { title: 'Account', links: [{ href: '/settings.html', label: 'Settings', key: 'settings', icon: 'settings' }] }
     ];
     return [
-      { href: '/', label: 'All cases', key: 'cases', icon: 'cases' },
-      { href: '/submit.html', label: 'New submission', key: 'submit', icon: 'submit' },
-      { href: '/reviews.html', label: 'Reviews', key: 'reviews', icon: 'reviews', badge: true },
-      { href: '/report.html', label: 'Report', key: 'report', icon: 'report' },
-      { href: '/users.html', label: 'Users', key: 'users', icon: 'users' },
-      { href: '/settings.html', label: 'Settings', key: 'settings', icon: 'settings' }
+      { title: 'Payables', links: [
+        { href: '/overview.html', label: 'Overview', key: 'overview', icon: 'overview' },
+        { href: '/', label: 'Invoices', key: 'cases', icon: 'cases' },
+        { href: '/submit.html', label: 'New submission', key: 'submit', icon: 'submit' },
+        { href: '/reviews.html', label: 'Approvals', key: 'reviews', icon: 'reviews', badge: true }
+      ] }, related, insights,
+      { title: 'Administration', links: [
+        { href: '/users.html', label: 'Users', key: 'users', icon: 'users' },
+        { href: '/settings.html', label: 'Settings', key: 'settings', icon: 'settings' }
+      ] }
     ];
   }
 
-  // ---------- Contact Opus support ----------
+  // ---------- Report a problem ----------
   // One button everywhere. It writes the email for the person: the failure
-  // reason, the workflow, org, execution and case ids, and it offers a
+  // reason, the process, org, execution and case ids, and it offers a
   // screenshot of the page to attach (a mailto link cannot attach files).
 
   var supportContext = null; // a page may register function () -> Promise<details>
@@ -352,24 +395,23 @@
 
   function baseDetails(me) {
     var s = me.support || {};
-    return { workflowId: s.workflowId, orgId: s.orgId || null, workflowName: 'AP Invoice Validation' };
+    return { workflowId: s.workflowId, orgId: s.orgId || null };
   }
 
   function line(label, value) { return value ? label + ': ' + value : null; }
 
   function supportEmail(me, d, shotName) {
-    var subject = 'AP Invoice Validation' + (d.caseId ? ' – job ' + d.caseId : '') +
-      (d.failed ? ' failed' + (d.failedAt ? ' at ' + d.failedAt : '') : d.status ? ' (' + d.status.toLowerCase().replace(/_/g, ' ') + ')' : ', question');
+    var subject = PRODUCT.name + (d.caseId ? ' – case ' + d.caseId : '') +
+      (d.failed ? ' did not finish' + (d.failedAt ? ' at ' + d.failedAt : '') : d.status ? ' (' + d.status.toLowerCase().replace(/_/g, ' ') + ')' : ', question');
     var parts = [
-      'Hello Opus support,', '',
-      d.reason ? 'Reason for the failure: ' + d.reason : 'Describe the issue here:',
-      d.failedAt ? 'Failed at step: ' + d.failedAt : null,
-      d.warnings && d.warnings.length ? 'Extractor messages:\n' + d.warnings.map(function (w) { return '  - ' + w; }).join('\n') : null,
+      'Hello support team,', '',
+      d.reason ? 'What went wrong: ' + d.reason : 'Describe the issue here:',
+      d.failedAt ? 'Stopped at step: ' + d.failedAt : null,
+      d.warnings && d.warnings.length ? 'Messages from the document readers:\n' + d.warnings.map(function (w) { return '  - ' + w; }).join('\n') : null,
       '',
-      line('Workflow', d.workflowName + (d.workflowVersion ? ' (version ' + d.workflowVersion + ')' : '')),
-      line('Workflow ID', d.workflowId),
-      'Org ID: ' + (d.orgId || 'not set in the console (OPUS_ORG_ID)'),
-      d.workspace ? 'Workspace: ' + d.workspace.name + ' (' + d.workspace.id + ')' : null,
+      line('Workflow ID', d.workflowId ? d.workflowId + (d.workflowVersion ? ' (version ' + d.workflowVersion + ')' : '') : null),
+      'Org ID: ' + (d.orgId || 'not set'),
+      d.workspace ? 'Workspace ID: ' + d.workspace.id : null,
       line('Execution ID', d.executionId),
       line('Execution reference ID', d.executionReferenceId),
       line('Case ID', d.caseId ? d.caseId + (d.reference ? ' (reference ' + d.reference + ')' : '') : null),
@@ -385,7 +427,7 @@
     ].filter(function (x) { return x !== null; });
     var body = parts.join('\n');
     if (body.length > 1800) body = body.slice(0, 1790) + '\n…';
-    return 'mailto:' + ((me.support && me.support.email) || 'support@opus.com') + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+    return 'mailto:' + ((me.support && me.support.email) || '') + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
   }
 
   function loadScript(src) {
@@ -398,7 +440,7 @@
   }
 
   function takeScreenshot(name) {
-    document.body.classList.remove('side-open');
+    document.body.classList.remove('nav-open');
     return loadScript('/vendor/html2canvas.min.js').then(function () {
       return window.html2canvas(document.body, {
         scale: Math.min(2, window.devicePixelRatio || 1),
@@ -430,8 +472,8 @@
     back.className = 'modal-back';
     back.id = 'support-modal';
     back.innerHTML = '<div class="modal support-modal" role="dialog" aria-modal="true" aria-labelledby="support-title">' +
-      '<h2 id="support-title">Contact Opus support</h2>' +
-      '<p class="muted small" style="margin:-6px 0 14px">The email is written for you with the details below. A mailto link cannot attach files, so download the screenshot first and attach it to the email.</p>' +
+      '<h2 id="support-title">Report a problem</h2>' +
+      '<p class="muted small" style="margin:-6px 0 14px">The email to the support team is written for you with the details below. A mailto link cannot attach files, so download the screenshot first and attach it to the email.</p>' +
       '<dl class="kv" id="support-details"><dt>Details</dt><dd>Gathering…</dd></dl>' +
       '<div class="alert bad" id="support-error" hidden style="margin-top:12px"></div>' +
       '<div class="support-steps">' +
@@ -448,14 +490,14 @@
 
     var stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
     var details = baseDetails(me);
-    var shotName = 'ap-support-' + stamp + '.png';
+    var shotName = 'payables-hub-' + stamp + '.png';
     var mail = document.getElementById('support-mail');
 
     function render(d) {
       details = d;
-      shotName = 'ap-support-' + (d.caseId ? 'job-' + d.caseId + '-' : '') + stamp + '.png';
+      shotName = 'payables-hub-' + (d.caseId ? 'case-' + d.caseId + '-' : '') + stamp + '.png';
       var rows = [
-        ['Reason', d.reason], ['Failed at', d.failedAt], ['Workflow ID', d.workflowId],
+        ['What went wrong', d.reason], ['Stopped at', d.failedAt], ['Workflow ID', d.workflowId],
         ['Org ID', d.orgId || '<span class="pill warn plain">Not set</span>'], ['Execution ID', d.executionId],
         ['Execution reference', d.executionReferenceId], ['Case ID', d.caseId ? d.caseId + (d.reference ? ' · ' + d.reference : '') : null],
       ].filter(function (r) { return r[1]; });
@@ -491,21 +533,26 @@
     });
   }
 
-  var SIDE_KEY = 'ap-sidebar';
-  var pinned = false;
-  function hoverCapable() { return window.matchMedia && matchMedia('(hover: hover) and (pointer: fine)').matches; }
-  function paintSidebar(open) {
-    document.body.classList.toggle('side-open', Boolean(open));
+  // ---------- chrome: the sidebar ----------
+  // Open and labelled by default. On a wide screen the chevron folds it to
+  // an icon strip (remembered); on a narrow screen it is a drawer behind the
+  // menu button in the top bar.
+
+  var SIDE_KEY = 'ph-sidebar';
+  function setCollapsed(next) {
+    document.body.classList.toggle('side-collapsed', Boolean(next));
     var t = document.getElementById('side-toggle');
-    if (t) t.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (t) {
+      t.setAttribute('aria-expanded', next ? 'false' : 'true');
+      t.setAttribute('aria-label', next ? 'Expand the menu' : 'Collapse the menu');
+      t.title = next ? 'Expand the menu' : 'Collapse the menu';
+    }
+    try { localStorage.setItem(SIDE_KEY, next ? 'collapsed' : 'open'); } catch (e) { /* private window */ }
   }
-  function setPinned(next) {
-    pinned = Boolean(next);
-    document.body.classList.toggle('side-pinned', pinned);
-    paintSidebar(pinned);
-    var t = document.getElementById('side-toggle');
-    if (t) t.setAttribute('aria-pressed', pinned ? 'true' : 'false');
-    try { localStorage.setItem(SIDE_KEY, pinned ? 'open' : 'collapsed'); } catch (e) { /* private window */ }
+  function setDrawer(open) {
+    document.body.classList.toggle('nav-open', Boolean(open));
+    var m = document.getElementById('menu-btn');
+    if (m) m.setAttribute('aria-expanded', open ? 'true' : 'false');
   }
 
   function renderChrome(me, active) {
@@ -515,58 +562,62 @@
     scrim.className = 'side-scrim';
     document.body.appendChild(scrim);
 
+    var top = document.createElement('header');
+    top.className = 'topbar';
+    top.innerHTML = '<button type="button" class="icon-btn" id="menu-btn" aria-controls="sidebar" aria-expanded="false" aria-label="Open the menu">' + icon('menu') + '</button>' +
+      '<a class="topbar-brand" href="' + esc(me.home || '/') + '">' + productMark(24) + '<span>' + PRODUCT.name + '</span></a>';
+    document.body.insertBefore(top, document.body.firstChild);
+
     var rail = document.createElement('aside');
     rail.className = 'sidebar';
+    rail.id = 'sidebar';
     rail.setAttribute('aria-label', 'Main');
     rail.innerHTML =
-      '<div class="side-top"><button type="button" class="side-toggle" id="side-toggle" aria-pressed="false" aria-expanded="false" title="Keep the menu open" aria-label="Keep the menu open">' + icon('chevron') + '</button></div>' +
-      '<a class="brand-lockup" href="' + esc(me.home || '/') + '" title="Applied AI, AP Invoice Validation">' +
-        '<img class="brand-mark" src="/brand-mark.png" alt="Applied AI" width="26" height="26">' +
-        '<span class="label">AP Invoice Validation<small>Applied AI · Opus</small></span></a>' +
-      '<nav class="side-nav">' + navLinks(user).map(function (l) {
-        return '<a href="' + l.href + '"' + (l.key === active ? ' aria-current="page"' : '') + ' title="' + esc(l.label) + '">' + icon(l.icon) +
-          '<span class="label">' + esc(l.label) + '</span>' + (l.badge ? '<span class="badge-count" id="review-badge" hidden></span>' : '') + '</a>';
+      '<div class="side-head">' +
+        '<a class="brand-lockup" href="' + esc(me.home || '/') + '" title="' + PRODUCT.name + '">' + productMark(28) +
+          '<span class="label">' + PRODUCT.name + '<small>' + PRODUCT.unit + '</small></span></a>' +
+        '<button type="button" class="side-toggle" id="side-toggle" aria-expanded="true" aria-label="Collapse the menu" title="Collapse the menu">' + icon('chevron') + '</button>' +
+        '<button type="button" class="side-close icon-btn" id="side-close" aria-label="Close the menu">' + icon('close') + '</button>' +
+      '</div>' +
+      '<nav class="side-nav">' + navGroups(user).map(function (g) {
+        return '<div class="nav-group"><p class="nav-title"><span>' + esc(g.title) + '</span>' + (g.note ? '<span class="nav-note">' + esc(g.note) + '</span>' : '') + '</p>' +
+          g.links.map(function (l) {
+            return '<a href="' + l.href + '"' + (l.key === active ? ' aria-current="page"' : '') + ' title="' + esc(l.label + (l.ro ? ' (read only)' : '')) + '">' + icon(l.icon) +
+              '<span class="label">' + esc(l.label) + '</span>' + (l.badge ? '<span class="badge-count" id="review-badge" hidden></span>' : '') + '</a>';
+          }).join('') + '</div>';
       }).join('') + '</nav>' +
       '<div class="side-foot">' +
         '<button type="button" class="side-link" id="theme-toggle" title="Switch light or dark">' + icon('theme') + '<span class="label">Light / dark</span></button>' +
-        '<button type="button" class="side-link" id="support-btn" title="Contact Opus support">' + icon('support') + '<span class="label">Contact Opus support</span></button>' +
+        '<button type="button" class="side-link" id="support-btn" title="Report a problem">' + icon('support') + '<span class="label">Report a problem</span></button>' +
         '<div class="side-account" title="' + esc(user.name + ', ' + (ROLE_LABEL[user.role] || user.role)) + '"><span class="avatar">' + esc((user.name || user.email || '?').charAt(0).toUpperCase()) + '</span>' +
           '<span class="label"><span class="account-name">' + esc(user.name) + '</span><span class="account-role">' + esc(ROLE_LABEL[user.role] || user.role) + '</span></span></div>' +
         '<button type="button" class="side-out" id="logout-btn" title="Sign out">' + icon('signout') + '<span class="label">Sign out</span></button>' +
       '</div>';
-    document.body.insertBefore(rail, document.body.firstChild);
+    document.body.insertBefore(rail, top.nextSibling);
 
     if (me.setupWarnings && me.setupWarnings.length) {
       var b = document.createElement('div');
       b.className = 'setup-banner';
-      b.innerHTML = '<div class="inner"><strong>Setup incomplete:</strong> missing ' + esc(me.setupWarnings.join(', ')) +
-        '. <a href="/settings.html">See Settings</a>. Environment changes only apply after the next Vercel deploy.</div>';
+      b.innerHTML = '<div class="inner"><strong>Setup incomplete.</strong> Part of the connection to the matching service is not configured yet, so some features may not work. Ask IT to check the system settings.</div>';
       var main = document.querySelector('main');
       if (main) main.parentNode.insertBefore(b, main);
     }
 
     var footer = document.createElement('footer');
     footer.className = 'footer';
-    footer.innerHTML = '<img src="/logo.png" alt="Applied AI"><span>AP Invoice Validation</span><span>Runs the Opus “AP Invoice Validation” workflow</span>';
+    footer.innerHTML = '<span><b>' + PRODUCT.name + '</b> · ' + PRODUCT.unit + ' · ' + PRODUCT.company + '</span>';
     document.body.appendChild(footer);
 
-    document.getElementById('side-toggle').addEventListener('click', function () { setPinned(!pinned); });
     var saved = false;
-    try { saved = localStorage.getItem(SIDE_KEY) === 'open'; } catch (e) { /* ignore */ }
-    setPinned(saved);
-    if (hoverCapable()) {
-      rail.addEventListener('mouseenter', function () { paintSidebar(true); });
-      rail.addEventListener('mouseleave', function () { if (!pinned) paintSidebar(false); });
-    }
-    rail.addEventListener('focusin', function () { paintSidebar(true); });
-    rail.addEventListener('focusout', function () {
-      if (pinned) return;
-      setTimeout(function () { if (!rail.contains(document.activeElement)) paintSidebar(false); }, 0);
-    });
-    scrim.addEventListener('click', function () { if (pinned) setPinned(false); });
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && pinned) setPinned(false); });
+    try { saved = localStorage.getItem(SIDE_KEY) === 'collapsed'; } catch (e) { /* ignore */ }
+    setCollapsed(saved);
+    document.getElementById('side-toggle').addEventListener('click', function () { setCollapsed(!document.body.classList.contains('side-collapsed')); });
+    document.getElementById('menu-btn').addEventListener('click', function () { setDrawer(true); });
+    document.getElementById('side-close').addEventListener('click', function () { setDrawer(false); });
+    scrim.addEventListener('click', function () { setDrawer(false); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') setDrawer(false); });
 
-    document.getElementById('support-btn').addEventListener('click', openSupport);
+    document.getElementById('support-btn').addEventListener('click', function () { setDrawer(false); openSupport(); });
     document.getElementById('logout-btn').addEventListener('click', function () {
       api('/api/logout', { method: 'POST', allow401: true }).then(function () { location.href = '/login.html'; }, function () { location.href = '/login.html'; });
     });
@@ -608,7 +659,7 @@
     }, function (err) {
       document.body.classList.remove('booting');
       var main = document.querySelector('main');
-      if (main) main.innerHTML = '<div class="alert bad"><strong>Could not load the console.</strong>' + esc(err.message) + '</div>';
+      if (main) main.innerHTML = '<div class="alert bad"><strong>Could not load the page.</strong>' + esc(err.message) + '</div>';
     });
   }
 
@@ -624,10 +675,10 @@
   }
 
   window.AP = {
-    esc: esc, api: api, boot: boot, fmtDate: fmtDate, fmtAgo: fmtAgo, fmtDuration: fmtDuration,
+    esc: esc, api: api, shortId: shortId, metaLine: metaLine, boot: boot, fmtDate: fmtDate, fmtAgo: fmtAgo, fmtDuration: fmtDuration,
     statusPill: statusPill, statusBucket: statusBucket, markdown: markdown, renderValue: renderValue,
     humanKey: humanKey, showError: showError, qs: qs, ROLE_LABEL: ROLE_LABEL, refreshReviewBadge: refreshReviewBadge,
-    icon: icon, openSupport: openSupport, setSupportContext: setSupportContext,
+    icon: icon, openSupport: openSupport, setSupportContext: setSupportContext, productMark: productMark, PRODUCT: PRODUCT,
     fmtRemaining: fmtRemaining, decisionLabel: decisionLabel, tidyText: tidyText, brandFree: brandFree,
   };
 })();

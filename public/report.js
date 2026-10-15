@@ -21,7 +21,7 @@
     PRICE_VARIANCE: 'Unit price above PO', QTY_INVOICE_VS_PO: 'Quantity differs from PO', QTY_INVOICE_VS_GR: 'Billed more than received',
     GR_RECEIPT_SHORT: 'Goods receipt short of PO', HEADER_TOTAL_VARIANCE: 'Invoice total above PO', VAT_VARIANCE: 'VAT amount off',
     CURRENCY_MISMATCH: 'Currency mismatch', PO_CROSS_REF_MISMATCH: 'PO reference mismatch', VENDOR_NOT_ACTIVE: 'Vendor not active',
-    VENDOR_NOT_FOUND: 'Vendor not in master', INPUT_PARSE_FAILED: 'Extractor output unreadable', DOCUMENT_UNREADABLE: 'Document could not be read',
+    VENDOR_NOT_FOUND: 'Vendor not in master', INPUT_PARSE_FAILED: 'Document data unreadable', DOCUMENT_UNREADABLE: 'Document could not be read',
     HEADER_TOTAL_MISSING: 'Total missing', LINE_NOT_ON_PO: 'Invoiced line not on PO', LINE_NOT_RECEIVED: 'Invoiced line not received',
     LINE_ITEMS_UNPAIRABLE: 'Line items could not be paired', MATCH_ENGINE_ERROR: '3-way match error'
   };
@@ -210,13 +210,16 @@
     var pts = r.series.points, unit = r.series.unit;
     var W = Math.max(280, Math.min(width || 860, 1000));
     var narrow = W < 560;
-    var H = narrow ? 280 : 310, padL = narrow ? 52 : 74, padR = narrow ? 10 : 16, padT = 18, padB = 40;
+    var H = narrow ? 290 : 320, padL = narrow ? 44 : 56, padR = narrow ? 10 : 16, padT = 30, padB = 40;
     var plotW = W - padL - padR, plotH = H - padT - padB;
     var peak = 0;
     pts.forEach(function (p) { peak = Math.max(peak, p.approved.amount, p.held.amount); });
     if (peak <= 0) peak = 1;
-    var step = Math.pow(10, Math.floor(Math.log10(peak)));
-    var top = Math.ceil(peak / step) * step;
+    // Four round steps (1, 2, 2.5 or 5 times a power of ten), so the axis
+    // reads 0, 20k, 40k, 60k, 80k rather than 18k, 35k, 53k.
+    var raw = peak / 4, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    var nice = [1, 2, 2.5, 5, 10].map(function (m) { return m * mag; }).filter(function (v) { return v >= raw; })[0];
+    var top = nice * 4;
     var slot = plotW / pts.length;
     var barW = Math.min(narrow ? 20 : 34, Math.max(3, (slot - (pts.length > 20 ? 4 : 14)) / 2));
     var gap = 2;
@@ -225,12 +228,25 @@
     var grid = [0, 0.25, 0.5, 0.75, 1].map(function (f) {
       var yy = y(top * f);
       return '<line class="grid-line" x1="' + padL + '" y1="' + yy + '" x2="' + (W - padR) + '" y2="' + yy + '"/>' +
-        '<text class="axis-text" x="' + (padL - 10) + '" y="' + (yy + 4) + '" text-anchor="end">' + esc(moneyShort(top * f, r.currency)) + '</text>';
-    }).join('');
+        '<text class="axis-text" x="' + (padL - 10) + '" y="' + (yy + 4) + '" text-anchor="end">' + esc(moneyShort(top * f)) + '</text>';
+    }).join('') +
+    // The currency is said once, above the axis, so tick labels stay short
+    // and never run into each other or the value label.
+    '<text class="axis-text axis-unit" x="' + (padL - 10) + '" y="12" text-anchor="end">' + esc(r.currency || '') + '</text>';
 
     // Label every Nth tick so day labels never collide.
     var every = Math.max(1, Math.ceil(pts.length / Math.floor(plotW / (narrow ? 46 : 58))));
     var tallest = pts.reduce(function (b, p, i) { var v = Math.max(p.approved.amount, p.held.amount); return v > b.v ? { v: v, i: i } : b; }, { v: -1, i: -1 });
+
+    // The peak's value, kept clear of the axis labels on the left and the
+    // edge on the right.
+    function valueLabel(cx, yy, text) {
+      var half = text.length * 3.6;
+      var anchor = 'middle', xx = cx;
+      if (cx - half < padL + 4) { anchor = 'start'; xx = Math.max(cx - 4, padL + 4); }
+      else if (cx + half > W - padR) { anchor = 'end'; xx = Math.min(cx + 4, W - padR); }
+      return '<text class="value-text" x="' + xx + '" y="' + Math.max(yy, padT - 8) + '" text-anchor="' + anchor + '">' + esc(text) + '</text>';
+    }
 
     var bars = pts.map(function (p, i) {
       var centre = padL + slot * i + slot / 2;
@@ -241,7 +257,7 @@
         return '<rect class="bar-' + kind + '" x="' + x + '" y="' + (padT + plotH - h) + '" width="' + barW + '" height="' + h + '" rx="' + rr + '" style="animation-delay:' + Math.min(i * 18, 360) + 'ms"/>' +
           '<rect class="hit" x="' + x + '" y="' + padT + '" width="' + barW + '" height="' + plotH + '" data-key="' + esc(p.key) + '" data-kind="' + kind +
           '" data-amount="' + esc(money(v, r.currency)) + '" data-count="' + p[kind].count + '"/>' +
-          (i === tallest.i && v > 0 && v === tallest.v ? '<text class="value-text" x="' + (x + barW / 2) + '" y="' + (padT + plotH - h - 6) + '" text-anchor="middle">' + esc(moneyShort(v, r.currency)) + '</text>' : '');
+          (i === tallest.i && v > 0 && v === tallest.v ? valueLabel(x + barW / 2, padT + plotH - h - 7, moneyShort(v, r.currency)) : '');
       };
       return one('approved', centre - barW - gap / 2) + one('held', centre + gap / 2) +
         (i % every === 0 ? '<text class="axis-text" x="' + centre + '" y="' + (H - 14) + '" text-anchor="middle">' + esc(axisLabel(p.key, unit)) + '</text>' : '');

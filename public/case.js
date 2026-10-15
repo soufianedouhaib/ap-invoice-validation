@@ -20,8 +20,8 @@
       AP.showError(document.getElementById('error'), new Error('No case id in the link.'));
       return;
     }
-    document.getElementById('crumb-id').textContent = 'Job ' + id;
-    // Contact Opus support from this page carries this case's ids and reason.
+    document.getElementById('crumb-id').textContent = 'Case ' + AP.shortId(id);
+    // Report a problem from this page carries this case's ids and reason.
     AP.setSupportContext(function () { return AP.api('/api/cases/' + encodeURIComponent(id) + '/support'); });
     document.getElementById('failure-card').addEventListener('click', function (e) {
       if (e.target.closest('[data-support]')) AP.openSupport();
@@ -67,7 +67,7 @@
 
     // details
     var rows = [
-      ['Job id', esc(c.jobId)],
+      ['Case id', esc(c.jobId)],
       ['Invoice', esc(c.files.invoice ? c.files.invoice.name : '—')],
       ['Purchase order', esc(c.files.purchaseOrder ? c.files.purchaseOrder.name : '—')],
       ['Goods receipt', esc(c.files.goodsReceipt ? c.files.goodsReceipt.name : '—')],
@@ -112,7 +112,7 @@
       bar.classList.toggle('indeterminate', pct === null);
       bar.firstChild.style.width = pct === null ? '' : pct + '%';
       document.getElementById('progress-text').textContent = c.status === 'WAITING_REVIEW'
-        ? 'Paused: awaiting review by an AP Approver.'
+        ? 'Paused: awaiting approval.'
         : (p.runningNode ? 'Running: ' + p.runningNode : 'Working…') + (p.nbNodes ? ' · ' + (p.nbExecutedNodes || 0) + ' of ' + p.nbNodes + ' steps' : '') + '. This page updates by itself.';
     }
 
@@ -126,15 +126,15 @@
       var nodes = (f.failedNodes || []).map(function (n) { return typeof n === 'string' ? n : (n.name || n.node_name || n.id || JSON.stringify(n)); });
       var expired = c.review && c.review.status === 'expired';
       document.getElementById('failure-body').innerHTML =
-        '<div class="alert bad"><strong>' + (c.status === 'TIMED_OUT' ? 'Timed out' : c.status === 'CANCELLED' ? 'Cancelled' : 'Failed') + '</strong>' +
-        (expired ? 'The review was not answered before the workflow’s time limit. ' : '') +
-        (f.cause ? esc(f.cause.message) + ' ' : nodes.length ? 'Failed at: ' + esc(nodes.join(', ')) + '. ' : '') +
+        '<div class="alert bad"><strong>' + (c.status === 'TIMED_OUT' ? 'Timed out' : c.status === 'CANCELLED' ? 'Cancelled' : 'Did not finish') + '</strong>' +
+        (expired ? 'The review was not answered within its time limit. ' : '') +
+        (f.cause ? esc(f.cause.message) + ' ' : nodes.length ? 'Stopped at: ' + esc(nodes.join(', ')) + '. ' : '') +
         'Submit the invoice pack again to retry.</div>' +
         '<p class="toolbar" style="margin-top:12px">' + (me.role !== 'approver' ? '<a class="btn" href="/submit.html">Submit again</a>' : '') +
-          '<button type="button" class="btn" data-support="1">Contact Opus support</button></p>' +
+          '<button type="button" class="btn" data-support="1">Report a problem</button></p>' +
         (me.role === 'admin' ? (f.raw
-          ? '<details class="raw" open><summary>Technical details from Opus (admins only)</summary><pre>' + esc(JSON.stringify(f.raw, null, 2)) + '</pre></details>'
-          : '<p class="muted small" style="margin-top:12px">No technical details were recorded for this case (it failed before this version of the app). Run it again to capture them.</p>') : '');
+          ? '<details class="raw" open><summary>Technical details (admins only)</summary><pre>' + esc(JSON.stringify(f.raw, null, 2)) + '</pre></details>'
+          : '<p class="muted small" style="margin-top:12px">No technical details were recorded for this case (it stopped before details were kept). Run it again to capture them.</p>') : '');
     }
 
     // results
@@ -158,16 +158,15 @@
   function renderReviewBanner(c) {
     var el = document.getElementById('review-banner');
     var r = c.review;
-    // Parked at the review step in Opus, but the review has not reached the app.
+    // Paused at the review step, but the review request has not reached the hub.
     if ((!r || r.status !== 'pending') && c.atReviewStep && !c.atReviewStep.inApp) {
       var approverView = me.role === 'approver' || me.role === 'admin';
-      el.innerHTML = '<div class="alert warn"><strong>Awaiting review by an AP Approver</strong>' +
-        'The 3-way match found exceptions, so this invoice is paused until an AP Approver approves or disputes them' +
+      el.innerHTML = '<div class="alert warn"><strong>Awaiting approval</strong>' +
+        'The 3-way match found exceptions, so this invoice is paused until an approver approves or disputes them' +
         ' (waiting since ' + esc(AP.fmtDate(c.atReviewStep.since)) + ').' +
         (approverView
-          ? '<div style="margin-top:8px">Opus is holding this at its <b>' + esc(c.atReviewStep.node) + '</b> step (' + esc(c.atReviewStep.opusStatus) + '), ' +
-            'but the review has not been sent to this app yet, so it cannot be answered here. ' +
-            'It can be answered in Opus (Jobs), or connect the step to this app: replace it with an <b>Off-Platform Task</b> whose webhook is this app\'s address (see Settings).</div>'
+          ? '<div style="margin-top:8px">It is paused at the <b>' + esc(c.atReviewStep.node) + '</b> step, but the review request has not reached the hub yet, so it cannot be answered here. ' +
+            'If this lasts more than a few minutes, use Report a problem.</div>'
           : '<div style="margin-top:6px">You will see the decision here once it is made. No action is needed from you.</div>') +
         '</div>';
       return;
@@ -177,7 +176,7 @@
       var canReview = me.role === 'approver' || me.role === 'admin';
       var own = c.submittedBy && me.email === c.submittedBy.email;
       el.innerHTML = '<div class="alert warn"><strong>Waiting for an approver</strong>' +
-        'The 3-way match found exceptions. The workflow is paused until an AP Approver approves or disputes them. Received ' + esc(AP.fmtAgo(r.receivedAt)) + '.' +
+        'The 3-way match found exceptions. The invoice is paused until an approver approves or disputes them. Received ' + esc(AP.fmtAgo(r.receivedAt)) + '.' +
         (!canReview ? '<div style="margin-top:6px">You will see the decision here once it is made. No action is needed from you.</div>' : '') +
         (canReview && !own ? '<div style="margin-top:10px"><a class="btn primary" href="/review.html?id=' + encodeURIComponent(r.dispatchId) + '">Open review</a></div>' : '') +
         (canReview && own ? '<div style="margin-top:6px">You submitted this one, so another approver has to review it.</div>' : '') +
@@ -186,7 +185,7 @@
       el.innerHTML = '<div class="card"><div class="card-head"><div><h2>Approver decision</h2><p>' + esc((r.reviewedBy && r.reviewedBy.name) || '—') + ' · ' + esc(AP.fmtDate(r.reviewedAt)) + '</p></div></div>' +
         '<pre class="mono" style="white-space:pre-wrap;margin:0">' + esc(r.response || '') + '</pre></div>';
     } else if (r.status === 'expired') {
-      el.innerHTML = '<div class="alert bad"><strong>Review expired</strong>Opus stopped waiting for a decision on this case.</div>';
+      el.innerHTML = '<div class="alert bad"><strong>Review expired</strong>No decision was made within the time limit.</div>';
     }
   }
 })();

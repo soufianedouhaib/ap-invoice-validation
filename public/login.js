@@ -6,7 +6,7 @@
   var esc = AP.esc;
 
   // A deep link (a case, a review) wins; otherwise each role lands on its own
-  // home: a clerk on New submission, an approver on Pending reviews.
+  // home: a clerk on Overview, an approver on Approvals.
   function destination(home) {
     var n = AP.qs('next');
     var safe = n && n.charAt(0) === '/' && n.charAt(1) !== '/' && n !== '/' && n.indexOf('/index.html') !== 0 && n.indexOf('/login') !== 0;
@@ -17,23 +17,21 @@
     if (me && me.user) location.replace(destination(me.home));
   }, function () { /* show the form */ });
 
-  var DEMO_TEXT = {
-    clerk: 'Lands on New submission',
-    approver: 'Lands on Pending reviews',
-    admin: 'Sees everything',
-  };
-  var initial = function (name) { return esc(String(name || '?').replace(/^Demo\s+/, '').charAt(0).toUpperCase()); };
+  document.getElementById('signin-brand').innerHTML = AP.productMark(36) +
+    '<span class="signin-name">' + AP.PRODUCT.name + '<small>' + AP.PRODUCT.unit + ' · ' + AP.PRODUCT.company + '</small></span>';
+
+  var initial = function (name) { return esc(String(name || '?').charAt(0).toUpperCase()); };
 
   AP.api('/api/demo', { allow401: true }).then(function (d) {
     if (!d || !d.enabled || !d.accounts.length) return;
     document.getElementById('demo').hidden = false;
-    // Demo build: accounts are picked from the list, so the free email form
-    // is hidden. It comes back when DEMO_MODE=false.
+    // Quick sign-in: accounts are picked from the list, so the free email
+    // form is hidden. It comes back when DEMO_MODE=false.
     form.hidden = true;
     var wrap = document.getElementById('demo-buttons');
     wrap.innerHTML = d.accounts.map(function (a, i) {
       var role = a.shownRole || a.role;
-      var sub = a.kind === 'demo' ? (DEMO_TEXT[role] || '') : a.email;
+      var sub = a.email || '';
       return '<div class="demo-item">' +
         '<button type="button" class="demo-account" data-i="' + i + '">' +
           '<span class="avatar">' + initial(a.name) + '</span>' +
@@ -88,7 +86,7 @@
           });
       });
     });
-  }, function () { /* no demo */ });
+  }, function () { /* no quick sign-in */ });
 
   form.addEventListener('submit', function (e) {
     e.preventDefault();

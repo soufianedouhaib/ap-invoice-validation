@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>System · Payables Hub</title>
   <link rel="icon" href="/mark.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/styles.css?v=28">
+  <link rel="stylesheet" href="/styles.css?v=29">
 </head>
 <body>
   <main>
@@ -14,8 +14,19 @@
       <div class="card-head"><div><h2>Workflow connection</h2><p>Read-only. Change these in Vercel → Settings → Environment Variables, then redeploy: changes never reach an existing build.</p></div></div>
       <div id="conn"><div class="empty">Loading…</div></div>
     </div>
+    <div class="card" style="margin-top:16px">
+      <div class="card-head"><div><h2>Data housekeeping</h2><p>Deletes runs left from setting the system up, invoices submitted twice, runs that did not finish and review requests that expired. Previewed before anything is deleted.</p></div>
+        <button type="button" class="btn" id="cleanup-btn">Clean up set-up data</button></div>
+      <div class="alert warn confirm-row" id="cleanup-confirm" hidden>
+        <span id="cleanup-text"></span>
+        <span class="spacer"></span>
+        <button type="button" class="btn small danger-solid" id="cleanup-yes" disabled>Yes, delete them</button>
+        <button type="button" class="btn small" id="cleanup-no">Cancel</button>
+      </div>
+      <div class="alert info" id="clear-note" hidden></div>
+    </div>
   </main>
-  <script src="/common.js?v=28"></script>
-  <script src="/system.js?v=28"></script>
+  <script src="/common.js?v=29"></script>
+  <script src="/system.js?v=29"></script>
 </body>
 </html>

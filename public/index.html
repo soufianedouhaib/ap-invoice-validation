@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Invoices · Payables Hub</title>
   <link rel="icon" href="/mark.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/styles.css?v=28">
+  <link rel="stylesheet" href="/styles.css?v=29">
 </head>
 <body>
   <main>
@@ -16,7 +16,6 @@
       </div>
       <div class="toolbar">
         <a class="btn small" href="/api/export.csv" id="export-link" hidden>Export CSV</a>
-        <button type="button" class="btn small" id="cleanup-btn" hidden>Clean up set-up data</button>
         <button type="button" class="btn small" id="clear-runs" hidden>Clear runs</button>
         <a class="btn primary" href="/submit.html" id="new-btn" hidden>New submission</a>
       </div>
@@ -27,12 +26,6 @@
       <span class="spacer"></span>
       <button type="button" class="btn small danger-solid" id="clear-yes">Yes, clear them</button>
       <button type="button" class="btn small" id="clear-no">Cancel</button>
-    </div>
-    <div class="alert warn confirm-row" id="cleanup-confirm" hidden style="margin-bottom:16px">
-      <span id="cleanup-text"><strong style="display:inline">Clean up set-up data?</strong> Checking…</span>
-      <span class="spacer"></span>
-      <button type="button" class="btn small danger-solid" id="cleanup-yes" disabled>Yes, delete them</button>
-      <button type="button" class="btn small" id="cleanup-no">Cancel</button>
     </div>
     <div class="alert info" id="clear-note" hidden style="margin-bottom:16px"></div>
 
@@ -47,7 +40,7 @@
     </div>
     <div class="alert bad" id="error" hidden style="margin-top:16px"></div>
   </main>
-  <script src="/common.js?v=28"></script>
-  <script src="/cases.js?v=28"></script>
+  <script src="/common.js?v=29"></script>
+  <script src="/cases.js?v=29"></script>
 </body>
 </html>

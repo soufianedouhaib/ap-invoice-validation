@@ -86,6 +86,10 @@
       items.push({ tone: 'bad', tag: 'Did not finish', c: c, text: 'The match stopped before a decision. Submit the pack again.',
         actions: (me.role !== 'approver' ? '<a class="btn small primary" href="/submit.html">Submit again</a>' : '') + '<a class="btn small" href="/case.html?id=' + encodeURIComponent(c.jobId) + '">View</a>' });
     });
+    capped(cases.filter(function (c) { return c.duplicateOf; }), 3, 'possible duplicates', '/').forEach(function (c) {
+      items.push({ tone: 'warn', tag: 'Duplicate', c: c, text: 'Same vendor and invoice number as ' + (c.duplicateOf.reference || 'an earlier submission') + '. It is left out of the payment run.',
+        actions: '<a class="btn small" href="/case.html?id=' + encodeURIComponent(c.jobId) + '">View</a>' });
+    });
     if (reviews) (reviews.pending || []).forEach(function (r) {
       var c = r.case;
       items.push({ tone: 'warn', tag: 'Decide', c: c, text: 'Exceptions found in the 3-way match. ' + AP.fmtRemaining(Math.max(0, (r.timeoutMinutes - r.ageMinutes) * 60000)) + ' left to decide.',
@@ -123,7 +127,7 @@
       ? '<table class="compact"><thead><tr><th>Invoice</th><th class="num col-amount">Amount</th><th>Status</th></tr></thead><tbody>' + recent.map(function (c) {
           var s = c.summary || {};
           return '<tr class="clickable" data-id="' + esc(c.jobId) + '" tabindex="0"><td><strong>' + esc(title(c)) + '</strong><span class="sub">' + AP.metaLine([s.vendor, AP.fmtAgo(c.submittedAt)]) + '</span></td>' +
-            '<td class="num nowrap col-amount">' + esc(s.displayAmount || '—') + '</td><td class="nowrap">' + AP.statusPill(c.status) + '</td></tr>';
+            '<td class="num nowrap col-amount">' + esc(s.displayAmount || '—') + '</td><td class="nowrap">' + AP.casePill(c) + '</td></tr>';
         }).join('') + '</tbody></table>'
       : '<div class="empty">No submissions yet.' + (me.role !== 'approver' ? ' <a href="/submit.html">Submit the first invoice pack</a>.' : '') + '</div>';
     Array.prototype.forEach.call(document.querySelectorAll('#recent tr.clickable'), function (tr) {

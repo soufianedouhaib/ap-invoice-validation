@@ -150,6 +150,14 @@
     return '<span class="pill ' + s[1] + '">' + esc(s[0]) + '</span>';
   }
 
+  // A finished invoice that was held reads "Held" everywhere, not "Completed".
+  function casePill(c) {
+    var s = (c && c.summary) || {};
+    if (c && c.status === 'COMPLETED' && (s.displayNote === 'held' || (typeof s.heldAmount === 'number' && s.heldAmount > 0 && !(s.amount > 0)))) return '<span class="pill bad">Held</span>';
+    if (c && c.status === 'COMPLETED' && typeof s.heldAmount === 'number' && s.heldAmount > 0) return '<span class="pill warn">Part held</span>';
+    return statusPill(c && c.status);
+  }
+
   function statusBucket(status) {
     if (status === 'COMPLETED') return 'completed';
     if (status === 'WAITING_REVIEW') return 'review';
@@ -285,7 +293,13 @@
       return '<div class="stack">' + v.map(function (x) { return '<div class="nest">' + jsonView(x, depth + 1) + '</div>'; }).join('') + '</div>';
     }
     if (isPlainObj(v)) {
-      var keys = Object.keys(v);
+      // Internal flags from the brief's builder ("rendered ok", an empty
+      // "error") mean nothing to a reader.
+      var keys = Object.keys(v).filter(function (k) {
+        if (/^render(ed)?_?ok$/i.test(k)) return false;
+        if (/^errors?$/i.test(k) && (v[k] === null || v[k] === '' || v[k] === false || (Array.isArray(v[k]) && !v[k].length))) return false;
+        return true;
+      });
       if (!keys.length) return '<span class="muted">Empty</span>';
       return '<dl>' + keys.map(function (k) {
         var val = v[k];
@@ -473,7 +487,7 @@
     back.id = 'support-modal';
     back.innerHTML = '<div class="modal support-modal" role="dialog" aria-modal="true" aria-labelledby="support-title">' +
       '<h2 id="support-title">Report a problem</h2>' +
-      '<p class="muted small" style="margin:-6px 0 14px">The email to the support team is written for you with the details below. A mailto link cannot attach files, so download the screenshot first and attach it to the email.</p>' +
+      '<p class="muted small" style="margin:-6px 0 14px">The email to the support team is written for you, with the technical details they need. A mailto link cannot attach files, so download the screenshot first and attach it to the email.</p>' +
       '<dl class="kv" id="support-details"><dt>Details</dt><dd>Gathering…</dd></dl>' +
       '<div class="alert bad" id="support-error" hidden style="margin-top:12px"></div>' +
       '<div class="support-steps">' +
@@ -496,14 +510,15 @@
     function render(d) {
       details = d;
       shotName = 'payables-hub-' + (d.caseId ? 'case-' + d.caseId + '-' : '') + stamp + '.png';
+      // The technical ids (workflow, org, execution) go in the email only.
       var rows = [
-        ['What went wrong', d.reason], ['Stopped at', d.failedAt], ['Workflow ID', d.workflowId],
-        ['Org ID', d.orgId || '<span class="pill warn plain">Not set</span>'], ['Execution ID', d.executionId],
-        ['Execution reference', d.executionReferenceId], ['Case ID', d.caseId ? d.caseId + (d.reference ? ' · ' + d.reference : '') : null],
+        ['What went wrong', d.reason], ['Stopped at', d.failedAt],
+        ['Invoice', d.reference], ['Case', d.caseId ? shortId(d.caseId) : null],
       ].filter(function (r) { return r[1]; });
+      if (!rows.length) rows.push(['Details', 'Describe the problem in the email. The technical details support needs are added for you.']);
       document.getElementById('support-details').innerHTML = rows.map(function (r) {
         var v = String(r[1]);
-        return '<dt>' + esc(r[0]) + '</dt><dd' + (/ID|reference/.test(r[0]) ? ' class="mono"' : '') + '>' + (v.indexOf('<span') === 0 ? v : esc(v)) + '</dd>';
+        return '<dt>' + esc(r[0]) + '</dt><dd' + (r[0] === 'Case' ? ' class="mono"' : '') + '>' + esc(v) + '</dd>';
       }).join('');
       mail.href = supportEmail(me, d, shotName);
     }
@@ -676,7 +691,7 @@
 
   window.AP = {
     esc: esc, api: api, shortId: shortId, metaLine: metaLine, boot: boot, fmtDate: fmtDate, fmtAgo: fmtAgo, fmtDuration: fmtDuration,
-    statusPill: statusPill, statusBucket: statusBucket, markdown: markdown, renderValue: renderValue,
+    statusPill: statusPill, casePill: casePill, statusBucket: statusBucket, markdown: markdown, renderValue: renderValue,
     humanKey: humanKey, showError: showError, qs: qs, ROLE_LABEL: ROLE_LABEL, refreshReviewBadge: refreshReviewBadge,
     icon: icon, openSupport: openSupport, setSupportContext: setSupportContext, productMark: productMark, PRODUCT: PRODUCT,
     fmtRemaining: fmtRemaining, decisionLabel: decisionLabel, tidyText: tidyText, brandFree: brandFree,

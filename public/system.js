@@ -3,7 +3,45 @@
   // Connection details for IT. Not linked from the menu: open /system.html.
   var esc = AP.esc;
 
-  AP.boot({ active: 'settings', roles: ['admin'] }, function () { loadConfig(); });
+  AP.boot({ active: 'settings', roles: ['admin'] }, function () { loadConfig(); wireCleanup(); });
+
+  // Admin: delete what was left from setting the system up (test runs, runs
+  // that never finished, reviews that expired). Previewed first.
+  function wireCleanup() {
+    var btn = document.getElementById('cleanup-btn');
+    var box = document.getElementById('cleanup-confirm');
+    var text = document.getElementById('cleanup-text');
+    var yes = document.getElementById('cleanup-yes');
+    var note = document.getElementById('clear-note');
+    function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
+    btn.addEventListener('click', function () {
+      box.hidden = false; note.hidden = true; yes.disabled = true;
+      text.innerHTML = '<strong style="display:inline">Clean up set-up data?</strong> Checking…';
+      AP.api('/api/admin/cleanup').then(function (p) {
+        var parts = [];
+        if (p.test) parts.push(plural(p.test, 'hidden set-up run', 'hidden set-up runs'));
+        if (p.duplicate) parts.push(plural(p.duplicate, 'duplicate submission', 'duplicate submissions'));
+        if (p.unfinished) parts.push(plural(p.unfinished, 'run that did not finish', 'runs that did not finish'));
+        if (p.expired) parts.push(plural(p.expired, 'invoice whose review expired', 'invoices whose review expired'));
+        if (p.reviews) parts.push(plural(p.reviews, 'expired or unmatched review request', 'expired or unmatched review requests'));
+        if (!parts.length) { text.innerHTML = '<strong style="display:inline">Nothing to clean up.</strong> ' + plural(p.kept, 'invoice stays', 'invoices stay') + '.'; return; }
+        text.innerHTML = '<strong style="display:inline">Clean up set-up data?</strong> Deletes ' + esc(parts.join(', ')) + '. ' + esc(plural(p.kept, 'invoice stays', 'invoices stay')) + '. This cannot be undone.';
+        yes.disabled = false;
+      }, function (err) { text.textContent = err.message; });
+    });
+    document.getElementById('cleanup-no').addEventListener('click', function () { box.hidden = true; });
+    yes.addEventListener('click', function () {
+      yes.disabled = true; yes.textContent = 'Deleting…';
+      AP.api('/api/admin/cleanup', { method: 'POST' }).then(function (p) {
+        box.hidden = true; note.hidden = false;
+        note.textContent = 'Cleaned up. ' + plural(p.kept, 'invoice remains', 'invoices remain') + '.';
+        AP.refreshReviewBadge();
+      }, function (err) { box.hidden = true; note.hidden = false; note.textContent = 'Nothing was deleted: ' + err.message; })
+        .then(function () { yes.textContent = 'Yes, delete them'; });
+    });
+  }
+
+
 
   function yesNo(v) { return v ? '<span class="pill ok">Set</span>' : '<span class="pill bad">Missing</span>'; }
 

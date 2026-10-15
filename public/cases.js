@@ -4,6 +4,7 @@
   var cases = [];
   var filter = 'all';
   var term = '';
+  var isAdmin = false;
 
   var BUCKETS = [
     { key: 'all', label: 'All invoices' },
@@ -14,6 +15,7 @@
   ];
 
   AP.boot({ active: 'cases' }, function (user) {
+    isAdmin = user.role === 'admin';
     if (user.role === 'clerk') {
       document.getElementById('page-title').textContent = 'My invoices';
       document.title = 'My invoices · Payables Hub';
@@ -21,7 +23,7 @@
     }
     document.getElementById('new-btn').hidden = !(user.role === 'clerk' || user.role === 'admin');
     document.getElementById('export-link').hidden = user.role === 'clerk';
-    if (user.role === 'admin') { wireClear(); wireCleanup(); }
+    if (user.role === 'admin') wireClear();
     var f = AP.qs('filter');
     if (f && /^(progress|review|completed|failed)$/.test(f)) filter = f;
     document.getElementById('search').addEventListener('input', function (e) { term = e.target.value.trim().toLowerCase(); render(); });
@@ -54,42 +56,6 @@
         note.hidden = false;
         note.textContent = 'Nothing was cleared: ' + err.message;
       }).then(function () { yes.disabled = false; yes.textContent = 'Yes, clear them'; });
-    });
-  }
-
-  // Admin: delete what was left from setting the system up (test runs, runs
-  // that never finished, reviews that expired). Previewed first.
-  function wireCleanup() {
-    var btn = document.getElementById('cleanup-btn');
-    var box = document.getElementById('cleanup-confirm');
-    var text = document.getElementById('cleanup-text');
-    var yes = document.getElementById('cleanup-yes');
-    var note = document.getElementById('clear-note');
-    btn.hidden = false;
-    function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
-    btn.addEventListener('click', function () {
-      box.hidden = false; note.hidden = true; yes.disabled = true;
-      text.innerHTML = '<strong style="display:inline">Clean up set-up data?</strong> Checking…';
-      AP.api('/api/admin/cleanup').then(function (p) {
-        var parts = [];
-        if (p.test) parts.push(plural(p.test, 'hidden set-up run', 'hidden set-up runs'));
-        if (p.unfinished) parts.push(plural(p.unfinished, 'run that did not finish', 'runs that did not finish'));
-        if (p.expired) parts.push(plural(p.expired, 'invoice whose review expired', 'invoices whose review expired'));
-        if (p.reviews) parts.push(plural(p.reviews, 'expired or unmatched review request', 'expired or unmatched review requests'));
-        if (!parts.length) { text.innerHTML = '<strong style="display:inline">Nothing to clean up.</strong> ' + plural(p.kept, 'invoice stays', 'invoices stay') + '.'; return; }
-        text.innerHTML = '<strong style="display:inline">Clean up set-up data?</strong> Deletes ' + esc(parts.join(', ')) + '. ' + esc(plural(p.kept, 'invoice stays', 'invoices stay')) + '. This cannot be undone.';
-        yes.disabled = false;
-      }, function (err) { text.textContent = err.message; });
-    });
-    document.getElementById('cleanup-no').addEventListener('click', function () { box.hidden = true; });
-    yes.addEventListener('click', function () {
-      yes.disabled = true; yes.textContent = 'Deleting…';
-      AP.api('/api/admin/cleanup', { method: 'POST' }).then(function (p) {
-        box.hidden = true; note.hidden = false;
-        note.textContent = 'Cleaned up. ' + plural(p.kept, 'invoice remains', 'invoices remain') + '.';
-        load(); AP.refreshReviewBadge();
-      }, function (err) { box.hidden = true; note.hidden = false; note.textContent = 'Nothing was deleted: ' + err.message; })
-        .then(function () { yes.textContent = 'Yes, delete them'; });
     });
   }
 
@@ -134,12 +100,25 @@
           '<td><strong>' + esc(title) + '</strong><span class="sub mono">Case ' + esc(AP.shortId(c.jobId)) + '</span></td>' +
           '<td>' + esc(c.summary.vendor || '—') + '</td>' +
           '<td class="num">' + esc(c.summary.displayAmount || '—') + (c.summary.displayNote ? '<span class="sub">' + esc(c.summary.displayNote) + '</span>' : '') + '</td>' +
-          '<td>' + (c.status === 'COMPLETED' && c.summary.displayNote === 'held' ? '<span class="pill bad">Held</span>' : AP.statusPill(c.status)) + (c.review && c.review.status === 'submitted' ? '<span class="sub">Reviewed by ' + esc(c.review.reviewedBy && c.review.reviewedBy.name) + '</span>' : '') + '</td>' +
+          '<td>' + AP.casePill(c) + (c.duplicateOf ? '<span class="sub dup-note">Duplicate of ' + esc(c.duplicateOf.reference || 'an earlier submission') +
+            (isAdmin ? ' · <button type="button" class="link-btn" data-delete="' + esc(c.jobId) + '">Delete</button>' : '') + '</span>' : '') + (c.review && c.review.status === 'submitted' ? '<span class="sub">Reviewed by ' + esc(c.review.reviewedBy && c.review.reviewedBy.name) + '</span>' : '') + '</td>' +
           '<td>' + esc(c.submittedBy ? c.submittedBy.name : '—') + '</td>' +
           '<td class="nowrap">' + esc(AP.fmtDate(c.submittedAt)) + '</td>' +
           '<td class="num">' + esc(c.completedAt ? AP.fmtDuration(c.submittedAt, c.completedAt) : '—') + '</td>' +
         '</tr>';
       }).join('') + '</tbody></table>';
+    // Admin: remove a second submission of the same invoice, after a confirm
+    // on the row itself.
+    Array.prototype.forEach.call(wrap.querySelectorAll('[data-delete]'), function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        if (b.getAttribute('data-armed') !== '1') { b.setAttribute('data-armed', '1'); b.textContent = 'Confirm delete'; return; }
+        b.disabled = true; b.textContent = 'Deleting…';
+        AP.api('/api/cases/' + encodeURIComponent(b.getAttribute('data-delete')), { method: 'DELETE' }).then(load, function (err) {
+          b.disabled = false; b.textContent = 'Delete'; b.removeAttribute('data-armed'); AP.showError(document.getElementById('error'), err);
+        });
+      });
+    });
     Array.prototype.forEach.call(wrap.querySelectorAll('tr.clickable'), function (tr) {
       function open() { location.href = '/case.html?id=' + encodeURIComponent(tr.getAttribute('data-id')); }
       tr.addEventListener('click', open);

@@ -806,3 +806,6 @@ table.compact td strong { overflow-wrap: anywhere; }
   .col-amount { display: none; }
   .kpi-value { font-size: 18px; }
 }
+.dup-note { color: var(--warn); }
+.link-btn { border: 0; background: none; padding: 0; font: inherit; color: var(--brand-ink); cursor: pointer; text-decoration: underline; }
+.link-btn[data-armed='1'] { color: var(--bad); font-weight: 600; }

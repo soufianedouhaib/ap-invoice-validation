@@ -330,7 +330,7 @@
       document.getElementById('countdown').textContent = '';
       done.innerHTML = '<div class="alert ok"><strong>Decision sent</strong>Matching is resuming. It will apply your decisions and finish the payment record.</div>' +
         (r.jobId ? '<p style="margin:12px 0 0"><a class="btn primary block" href="/case.html?id=' + encodeURIComponent(r.jobId) + '">Follow the case</a></p>' : '') +
-        '<p style="margin:8px 0 0"><a class="btn block" href="/reviews.html">Back to reviews</a></p>';
+        '<p style="margin:8px 0 0"><a class="btn block" href="/reviews.html">Back to approvals</a></p>';
       AP.refreshReviewBadge();
     }, function (err) {
       closeConfirm();

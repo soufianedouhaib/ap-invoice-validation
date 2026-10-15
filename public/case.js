@@ -63,7 +63,7 @@
     var title = c.reference || c.summary.invoiceNumber || (c.files.invoice && c.files.invoice.name) || 'Invoice pack';
     document.getElementById('case-title').textContent = title;
     document.getElementById('case-sub').textContent = 'Submitted by ' + (c.submittedBy ? c.submittedBy.name : '—') + ' · ' + AP.fmtDate(c.submittedAt);
-    document.getElementById('case-status').innerHTML = AP.statusPill(c.status);
+    document.getElementById('case-status').innerHTML = AP.casePill(c);
 
     // details
     var rows = [

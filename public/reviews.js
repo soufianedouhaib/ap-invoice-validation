@@ -88,7 +88,7 @@
           '<td><strong>' + esc(title) + '</strong><span class="sub mono">Case ' + esc(AP.shortId(c.jobId)) + '</span></td>' +
           '<td class="pre-line" style="max-width:360px">' + decision + '</td>' +
           '<td>' + esc(r.reviewedBy ? r.reviewedBy.name : '—') + '<span class="sub">' + esc(AP.fmtDate(r.reviewedAt)) + '</span></td>' +
-          '<td>' + AP.statusPill(c.status) + '</td>' +
+          '<td>' + AP.casePill(c) + '</td>' +
         '</tr>';
       }).join('') + '</tbody></table>';
     bindRows(wrap, function (tr) { return '/case.html?id=' + encodeURIComponent(tr.getAttribute('data-id')); });

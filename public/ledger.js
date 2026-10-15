@@ -27,18 +27,18 @@
     orders: {
       lede: 'Purchase orders and goods receipts matched against invoices in the hub.',
       source: 'Purchase orders and goods receipts are raised in procurement. This list shows the ones the hub has matched an invoice against.',
-      empty: 'No purchase orders yet. They appear once an invoice pack has been matched.',
-      head: ['Purchase order', 'Goods receipt', 'Vendor', 'Invoice', 'Match', 'Matched on'],
-      num: [],
+      empty: 'No purchase orders yet. They appear once a purchase order number has been read from an invoice pack.',
+      head: ['Purchase order', 'Goods receipt', 'Vendor', 'Latest invoice', 'Invoices', 'Match', 'Matched on'],
+      num: [4],
       row: function (o) {
         return [
-          (o.poNumber ? '<strong>' + esc(o.poNumber) + '</strong>' : '<span class="muted">Not read</span>') + (o.poFile ? '<span class="sub">' + esc(o.poFile) + '</span>' : ''),
-          (o.grNumber ? esc(o.grNumber) : '<span class="muted">Not read</span>') + (o.grFile ? '<span class="sub">' + esc(o.grFile) + '</span>' : ''), esc(o.vendor || '—'),
-          '<a href="/case.html?id=' + encodeURIComponent(o.caseId) + '">' + esc(o.invoiceNumber || 'Invoice') + '</a>',
+          o.poNumber ? '<strong>' + esc(o.poNumber) + '</strong>' : '<span class="muted">Not read</span>',
+          o.grNumber ? esc(o.grNumber) : '<span class="muted">Not read</span>', esc(o.vendor || '—'),
+          '<a href="/case.html?id=' + encodeURIComponent(o.caseId) + '">' + esc(o.invoiceNumber || 'Invoice') + '</a>', o.invoices,
           '<span class="pill ' + tone(o.state) + ' plain">' + esc(o.state) + '</span>', esc(AP.fmtDate(o.submittedAt)),
         ];
       },
-      hay: function (o) { return [o.poNumber, o.grNumber, o.poFile, o.grFile, o.vendor, o.invoiceNumber, o.state].join(' '); },
+      hay: function (o) { return [o.poNumber, o.grNumber, o.vendor, o.invoiceNumber, o.state].join(' '); },
     },
     payments: {
       lede: 'Invoices approved for payment, with when each falls due under the vendor’s terms.',
